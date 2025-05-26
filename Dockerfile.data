@@ -1,0 +1,15 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy your code into the container
+COPY . .
+
+# Ensure data directory exists inside the container
+RUN mkdir -p /app/data
+
+CMD ["python", "data_collector.py"]
