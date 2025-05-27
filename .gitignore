@@ -1,0 +1,71 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# PyInstaller
+*.spec
+
+# Virtual environments
+.env/
+.venv/
+env/
+venv/
+
+# Conda environments
+*.conda
+*.env
+*.yml
+
+# Python dependency logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+.vscode/
+.idea/
+
+# Data files (input/output)
+data/
+*.csv
+*.h5
+*.db
+*.sqlite
+*.json
+
+# Model outputs and logs
+checkpoints/
+*.pth
+*.pt
+*.h5
+*.pkl
+*.joblib
+logs/
+runs/  # if using TensorBoard
+output/
+
+# Docker
+*.pid
+*.tar
+*.sock
+
+# Local Docker volumes
+volumes/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Pytest cache
+.pytest_cache/
+
+# Coverage reports
+htmlcov/
+.coverage
