@@ -1,6 +1,6 @@
 from stable_baselines3 import PPO
 from rl.portfolio_env import PortfolioEnv
-from utils.data_loader import load_market_data
+from data.data_loader import load_market_data
 import matplotlib.pyplot as plt
 import numpy as np
 
