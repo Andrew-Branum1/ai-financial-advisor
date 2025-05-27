@@ -9,3 +9,4 @@ yfinance
 sqlalchemy
 transformers
 ta
+sqlite3
