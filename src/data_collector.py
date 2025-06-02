@@ -144,7 +144,7 @@ def run_data_collection_job():
     create_table_if_not_exists()
 
     end_date = datetime.today().date()
-    start_date = end_date - timedelta(days=5*365) # Fetch approx. 5 years of data
+    start_date = end_date - timedelta(days=15*365) # Fetch approx. 5 years of data
 
     start_date_str = start_date.strftime('%Y-%m-%d')
     end_date_str = end_date.strftime('%Y-%m-%d')

@@ -47,9 +47,12 @@ if __name__ == "__main__":
 
     # --- Configuration ---
     tickers_for_evaluation = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA']
-    model_load_path = os.path.join(os.getcwd(), "models", "ppo_lr_schedule_300k_v1.zip") # Corrected path
+    eval_start_date = "2021-01-01"  # Example
+    eval_end_date = "2023-12-31"    # Example
+    model_load_path = os.path.join(os.getcwd(), "models", "ppo_lr_schedule_15yr_train_300k_v1.zip") # Corrected path
     window_size_env_eval = 30        # Must match the window_size used for the loaded model's env
     initial_balance_env_eval = 10000.0 # Should ideally match training or be set appropriately
+    features_to_use = ['close', 'rsi', 'volatility_20'] 
     
     # Optional: Define specific date range for out-of-sample evaluation
     # eval_start_date = "2024-01-01"
@@ -59,9 +62,10 @@ if __name__ == "__main__":
     try:
         df_eval = load_market_data_from_db(
             tickers_list=tickers_for_evaluation,
-            # start_date=eval_start_date, # Uncomment to use
-            # end_date=eval_end_date,     # Uncomment to use
-            min_data_points=window_size_env_eval + 50 # Enough for env + some eval steps
+            start_date=eval_start_date, # Uncomment to use
+            end_date=eval_end_date,     # Uncomment to use
+            min_data_points=window_size_env_eval + 50, # Enough for env + some eval steps
+            feature_columns=features_to_use,
         )
     except Exception as e:
         logging.critical(f"Fatal error loading evaluation data: {e}")
@@ -78,7 +82,7 @@ if __name__ == "__main__":
     # --- Initialize Environment and Load Model ---
     logging.info("Initializing PortfolioEnv for evaluation...")
     try:
-        eval_env = PortfolioEnv(df_eval, window_size=window_size_env_eval, initial_balance=initial_balance_env_eval)
+        eval_env = PortfolioEnv(df_eval, window_size=window_size_env_eval, initial_balance=initial_balance_env_eval,feature_columns=features_to_use,)
         model = PPO.load(model_load_path, env=eval_env) # Pass env to ensure compatibility
         logging.info(f"Model {model_load_path} loaded successfully.")
     except Exception as e:
