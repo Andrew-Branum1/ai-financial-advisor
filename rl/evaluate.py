@@ -47,7 +47,7 @@ if __name__ == "__main__":
 
     # --- Configuration ---
     tickers_for_evaluation = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA']
-    model_load_path = os.path.join(os.getcwd(), "models", "ppo_portfolio_baseline_150k_run_fix_attmpt.zip") # Corrected path
+    model_load_path = os.path.join(os.getcwd(), "models", "ppo_lr_schedule_300k_v1.zip") # Corrected path
     window_size_env_eval = 30        # Must match the window_size used for the loaded model's env
     initial_balance_env_eval = 10000.0 # Should ideally match training or be set appropriately
     
