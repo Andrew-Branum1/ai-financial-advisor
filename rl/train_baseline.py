@@ -38,13 +38,20 @@ if __name__ == "__main__":
 
     # --- Configuration ---
     tickers_for_training = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA']
+    # Define your specific training period
+    training_start_date = "2009-01-01"  # Example: Start of your 15-year data
+    training_end_date = "2020-12-31"    # Example: Leaving ~3 years for validation/testing
     window_size_env = 30
     initial_balance_env = 10000.0
+    features_to_use = ['close', 'rsi', 'volatility_20'] 
 
     logging.info(f"Attempting to load training data for tickers: {tickers_for_training}")
     try:
         df_train = load_market_data_from_db(
             tickers_list=tickers_for_training,
+            start_date=training_start_date, # Pass the start date
+            end_date=training_end_date,     # Pass the end date
+            feature_columns=features_to_use,
             min_data_points=window_size_env + 100
         )
     except Exception as e:
@@ -60,7 +67,7 @@ if __name__ == "__main__":
     # --- Environment Setup ---
     logging.info("Initializing PortfolioEnv for training...")
     try:
-        env = PortfolioEnv(df_train, window_size=window_size_env, initial_balance=initial_balance_env)
+        env = PortfolioEnv(df_train,feature_columns=features_to_use, window_size=window_size_env, initial_balance=initial_balance_env)
         # check_env(env) # Optional
     except ValueError as e:
         logging.error(f"Error initializing PortfolioEnv: {e}", exc_info=True)
@@ -112,7 +119,7 @@ if __name__ == "__main__":
     models_dir = os.path.join(os.getcwd(), "models")
     os.makedirs(models_dir, exist_ok=True)
     # IMPORTANT: Give this model a new unique name!
-    model_save_name = f"ppo_lr_schedule_{total_timesteps_to_train//1000}k_v1.zip"
+    model_save_name = f"ppo_lr_schedule_15yr_train_{total_timesteps_to_train//1000}k_v1.zip"
     model_save_path = os.path.join(models_dir, model_save_name)
     try:
         model.save(model_save_path)
