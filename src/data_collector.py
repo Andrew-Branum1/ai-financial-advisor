@@ -3,7 +3,7 @@ import yfinance as yf
 import pandas as pd
 from sqlalchemy import create_engine, text
 from datetime import datetime, timedelta
-import ta
+import ta # Technical Analysis library
 import logging
 import os
 
@@ -11,15 +11,13 @@ import os
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # ========== CONFIGURATION ==========
-TICKERS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'SPY'] # Added SPY for benchmark
-# Database path relative to the project root directory
+TICKERS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'SPY']
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_DIR = os.path.join(PROJECT_ROOT, 'data')
 DB_FILENAME = 'market_data.db'
 DB_PATH = os.path.join(DB_DIR, DB_FILENAME)
 DB_URI = f'sqlite:///{DB_PATH}'
 
-# Ensure the data directory exists
 os.makedirs(DB_DIR, exist_ok=True)
 logging.info(f"Database will be located at: {DB_PATH}")
 engine = create_engine(DB_URI)
@@ -48,6 +46,10 @@ def create_table_if_not_exists():
                     volatility_20 REAL,
                     momentum_10 REAL,
                     avg_volume_10 REAL,
+                    bollinger_hband REAL,      -- Bollinger High Band
+                    bollinger_lband REAL,      -- Bollinger Low Band
+                    bollinger_mavg REAL,       -- Bollinger Moving Average
+                    atr REAL,                  -- Average True Range (ATR)
                     UNIQUE(ticker, date)
                 );
             """))
@@ -62,7 +64,7 @@ def fetch_and_store_ticker_data(ticker_symbol: str, start_date_str: str, end_dat
     logging.info(f"Fetching data for {ticker_symbol} from {start_date_str} to {end_date_str}...")
     try:
         df = yf.download(ticker_symbol, start=start_date_str, end=end_date_str, progress=False)
-    except Exception as e: # More specific exceptions could be caught
+    except Exception as e:
         logging.error(f"Failed to download data for {ticker_symbol}: {e}")
         return
 
@@ -70,27 +72,27 @@ def fetch_and_store_ticker_data(ticker_symbol: str, start_date_str: str, end_dat
         logging.warning(f"No data downloaded for {ticker_symbol} for the range {start_date_str} to {end_date_str}.")
         return
 
-    df.reset_index(inplace=True) # Date becomes a column
+    df.reset_index(inplace=True)
 
-    # Normalize column names
     new_columns = []
     for col in df.columns:
-        if isinstance(col, tuple):
-            # If it's a tuple, take the first element, make it lowercase, and replace spaces
-            # This is a common case if yfinance returns a MultiIndex, e.g., ('Close', '')
-            col_name = str(col[0]) if col[0] else '' # Ensure it's a string
-        else:
-            col_name = str(col) # Ensure it's a string
+        col_name = str(col[0]) if isinstance(col, tuple) and col[0] else str(col)
         new_columns.append(col_name.lower().replace(' ', '_'))
     df.columns = new_columns
-    if 'adj_close' in df.columns: # Prefer adjusted close
+    if 'adj_close' in df.columns:
         df['close'] = df['adj_close']
 
     df['ticker'] = ticker_symbol
-    # Ensure 'date' column is datetime.date objects for SQLite compatibility
     df['date'] = pd.to_datetime(df['date']).dt.date
 
-    # Technical Indicators (apply fillna after all calculations or per indicator)
+    # Ensure required columns for TA-Lib exist
+    required_ta_cols = {'high', 'low', 'close', 'volume'}
+    if not required_ta_cols.issubset(df.columns):
+        missing_ta_cols = required_ta_cols - set(df.columns)
+        logging.error(f"Missing required columns for TA indicators for {ticker_symbol}: {missing_ta_cols}. Skipping TA.")
+        return # Or handle by filling with defaults if appropriate
+
+    # Technical Indicators
     df['sma_10'] = ta.trend.sma_indicator(df['close'], window=10)
     df['sma_50'] = ta.trend.sma_indicator(df['close'], window=50)
     df['rsi'] = ta.momentum.rsi(df['close'], window=14)
@@ -98,53 +100,48 @@ def fetch_and_store_ticker_data(ticker_symbol: str, start_date_str: str, end_dat
     df['macd'] = macd_obj.macd()
     df['macd_signal'] = macd_obj.macd_signal()
 
-    df['daily_return'] = df['close'].pct_change() # First value will be NaN
+    df['daily_return'] = df['close'].pct_change()
     df['volatility_5'] = df['daily_return'].rolling(window=5).std()
     df['volatility_20'] = df['daily_return'].rolling(window=20).std()
     df['momentum_10'] = df['close'] - df['close'].shift(10)
     df['avg_volume_10'] = df['volume'].rolling(window=10).mean()
 
-    # Handle NaNs created by TA functions (especially at the beginning of the series)
-    # Option 1: Fill with 0 (can be problematic for some indicators)
-    # df.fillna(0, inplace=True)
-    # Option 2: Backward fill then forward fill
+    # New Indicators: Bollinger Bands and ATR
+    bollinger = ta.volatility.BollingerBands(close=df['close'], window=20, window_dev=2)
+    df['bollinger_hband'] = bollinger.bollinger_hband()
+    df['bollinger_lband'] = bollinger.bollinger_lband()
+    df['bollinger_mavg'] = bollinger.bollinger_mavg()
+    df['atr'] = ta.volatility.average_true_range(high=df['high'], low=df['low'], close=df['close'], window=14)
+
     df.fillna(method='bfill', inplace=True)
     df.fillna(method='ffill', inplace=True)
-    # Option 3: Drop rows with any NaNs if critical, but this reduces data
-    # df.dropna(inplace=True)
 
-
-    # Select and order columns to match table schema
     final_columns = [
         'ticker', 'date', 'open', 'high', 'low', 'close', 'volume',
         'sma_10', 'sma_50', 'rsi', 'macd', 'macd_signal',
         'daily_return', 'volatility_5', 'volatility_20',
-        'momentum_10', 'avg_volume_10'
+        'momentum_10', 'avg_volume_10',
+        'bollinger_hband', 'bollinger_lband', 'bollinger_mavg', 'atr' # Added new features
     ]
-    # Ensure all columns exist, add missing ones with default (e.g., if yf.download didn't return one)
     for col in final_columns:
         if col not in df.columns:
-            df[col] = 0.0 # Or None, depending on desired default
-            logging.warning(f"Column '{col}' was missing for {ticker_symbol}, added with default value.")
+            df[col] = 0.0 # Default for missing columns (e.g. if yfinance didn't return one)
+            logging.warning(f"Column '{col}' was missing for {ticker_symbol}, added with default value 0.0.")
     df = df[final_columns]
 
-
     try:
-        # Using 'append' relies on the UNIQUE constraint to prevent exact duplicates.
-        # It will not update existing rows if data for a (ticker, date) changes.
-        # For full refresh of a period, consider deleting data for that period first.
         df.to_sql('price_data', con=engine, if_exists='append', index=False)
-        logging.info(f"Data for {ticker_symbol} ( {len(df)} rows) appended/skipped due to UNIQUE constraint.")
+        logging.info(f"Data for {ticker_symbol} ({len(df)} rows) appended/skipped.")
     except Exception as e:
         logging.error(f"Error inserting data for {ticker_symbol} into database: {e}")
         logging.debug(f"Sample of problematic data for {ticker_symbol}:\n{df.head()}")
 
 # ========== MAIN JOB EXECUTION ==========
 def run_data_collection_job():
-    create_table_if_not_exists()
+    create_table_if_not_exists() # Ensures table schema is up-to-date if run first
 
     end_date = datetime.today().date()
-    start_date = end_date - timedelta(days=15*365) # Fetch approx. 5 years of data
+    start_date = end_date - timedelta(days=15*365) # Approx. 15 years
 
     start_date_str = start_date.strftime('%Y-%m-%d')
     end_date_str = end_date.strftime('%Y-%m-%d')
