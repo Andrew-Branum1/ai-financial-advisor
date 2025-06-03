@@ -10,3 +10,4 @@ sqlalchemy
 transformers
 ta
 tensorboard
+seaborn
