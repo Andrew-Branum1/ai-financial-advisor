@@ -11,7 +11,7 @@ import os
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # ========== CONFIGURATION ==========
-TICKERS = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'SPY']
+TICKERS = ['MSFT', 'GOOGL', 'AMZN', 'SPY']
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_DIR = os.path.join(PROJECT_ROOT, 'data')
 DB_FILENAME = 'market_data.db'
@@ -141,7 +141,7 @@ def run_data_collection_job():
     create_table_if_not_exists() # Ensures table schema is up-to-date if run first
 
     end_date = datetime.today().date()
-    start_date = end_date - timedelta(days=15*365) # Approx. 15 years
+    start_date = end_date - timedelta(days=25*365) # Approx. 15 years
 
     start_date_str = start_date.strftime('%Y-%m-%d')
     end_date_str = end_date.strftime('%Y-%m-%d')

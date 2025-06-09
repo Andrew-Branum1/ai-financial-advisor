@@ -46,9 +46,9 @@ if __name__ == "__main__":
     spy_ticker_symbol = 'SPY'
     tickers_to_load_for_data = sorted(list(set(tickers_for_agent_evaluation + [spy_ticker_symbol])))
 
-    eval_start_date = "2021-01-01"
-    eval_end_date = "2023-12-31"
-    model_load_path = os.path.join(os.getcwd(), "models", "ppo_tx0.10_volP0.05_lossA1.5_feats7_300k_drawdownFocus_v1.zip") # EXAMPLE PATH
+    eval_start_date = "2023-01-01"
+    eval_end_date = "2025-06-02"
+    model_load_path = os.path.join(os.getcwd(), "models", "ppo_3asset_preOptuna_tx0.10_volP0.05_lossA1.5_rollWin20_steps300k_bestPerforming_v1.zip") # EXAMPLE PATH
     
     window_size_env_eval = 30
     initial_balance_env_eval = 10000.0
