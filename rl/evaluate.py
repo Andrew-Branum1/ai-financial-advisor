@@ -4,11 +4,19 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns # For KDE plots
+import seaborn as sns
+import asyncio
 
 # Absolute imports from the project root perspective
-from rl.portfolio_env import PortfolioEnv # Assuming portfolio_env.py is in the 'rl' directory
-from src.utils import load_market_data_from_db # Assuming utils.py is in the 'src' directory
+from rl.portfolio_env import PortfolioEnv
+from src.utils import load_market_data_from_db
+# from llm.advisor import generate_report_async # Can be uncommented when ready
+from config import (
+    AGENT_TICKERS,
+    BENCHMARK_TICKER,
+    FEATURES_TO_USE_IN_MODEL,
+    ENV_PARAMS
+)
 
 try:
     from stable_baselines3 import PPO
@@ -16,330 +24,183 @@ except ImportError:
     logging.error("Stable Baselines3 (PPO) not found. Please ensure it's installed.")
     PPO = None
 
-# --- Performance Metrics ---
-def calculate_sharpe_ratio(portfolio_values: np.ndarray, risk_free_rate_daily: float = 0.0) -> float:
-    if len(portfolio_values) < 2: return 0.0
-    daily_returns = np.diff(portfolio_values) / portfolio_values[:-1]
-    if len(daily_returns) == 0: return 0.0
-    excess_returns = daily_returns - risk_free_rate_daily
-    if np.std(excess_returns) == 0: return 0.0
-    sharpe = np.mean(excess_returns) / np.std(excess_returns)
-    annualized_sharpe = sharpe * np.sqrt(252)
-    return annualized_sharpe
+# --- Configuration Dictionary ---
+# IMPORTANT: This path must point to the model you want to evaluate.
+# You might make this a command-line argument for easier use.
+MODEL_PATH = "models/best_PPO_Portfolio_Final_20250609-155500/best_model.zip"
+PLOTS_DIR = "plots"
+START_DATE = "2024-01-01"
+END_DATE = "2025-06-02"
 
-def calculate_max_drawdown(portfolio_values: np.ndarray) -> float:
-    if len(portfolio_values) == 0: return 0.0
-    roll_max = np.maximum.accumulate(portfolio_values)
-    drawdown = (portfolio_values - roll_max) / np.where(roll_max == 0, 1e-9, roll_max)
-    max_dd = np.min(drawdown) if len(drawdown) > 0 else 0.0
-    return -max_dd
 
-if __name__ == "__main__":
+class PortfolioEvaluator:
+    def __init__(self, config):
+        self.config = config
+        self.model = None
+        self.eval_env = None
+        self.df_full_eval_data = None
+        self.results = {}
+        
+        os.makedirs(self.config["plots_dir"], exist_ok=True)
+        model_dir = os.path.dirname(self.config["model_path"])
+        self.base_plot_name = os.path.basename(model_dir) if "best_model.zip" in self.config["model_path"] else os.path.basename(self.config["model_path"]).replace(".zip", "")
+
+    def _load_data(self):
+        logging.info("Loading evaluation data...")
+        all_tickers = sorted(list(set(self.config["agent_tickers"] + [self.config["benchmark_ticker"]])))
+        self.df_full_eval_data = load_market_data_from_db(
+            tickers_list=all_tickers,
+            start_date=self.config["start_date"],
+            end_date=self.config["end_date"],
+            min_data_points=self.config["env_params"]["window_size"] + 50,
+            feature_columns=self.config["features_to_use"],
+        )
+        if self.df_full_eval_data.empty: raise ValueError("Failed to load evaluation data.")
+        logging.info(f"Full evaluation data loaded. Shape: {self.df_full_eval_data.shape}")
+
+    def _setup_environment_and_model(self):
+        logging.info("Setting up environment and loading model...")
+        agent_specific_cols = [f"{t}_{f}" for t in self.config["agent_tickers"] for f in self.config["features_to_use"]]
+        
+        # This check will now pass because the config is consistent
+        if not all(col in self.df_full_eval_data.columns for col in agent_specific_cols):
+            missing = [col for col in agent_specific_cols if col not in self.df_full_eval_data.columns]
+            raise ValueError(f"Agent-specific columns missing from data: {missing}")
+
+        df_agent_env_data = self.df_full_eval_data[agent_specific_cols].copy()
+        self.eval_env = PortfolioEnv(df=df_agent_env_data, feature_columns_ordered=self.config["features_to_use"], **self.config["env_params"])
+        
+        if not os.path.exists(self.config["model_path"]): raise FileNotFoundError(f"Model file not found at {self.config['model_path']}")
+        self.model = PPO.load(self.config["model_path"], env=self.eval_env)
+        logging.info(f"Model {self.config['model_path']} loaded successfully.")
+        
+    def _run_rl_agent_simulation(self):
+        logging.info("Evaluating RL Agent...")
+        obs, _ = self.eval_env.reset()
+        terminated, truncated = False, False
+        self.results['rl_agent'] = {'portfolio_values': [self.eval_env.portfolio_value], 'weights_history': [self.eval_env.weights.copy()], 'turnover_history': [], 'cumulative_costs': [0.0]}
+        prev_weights = self.eval_env.weights.copy()
+        while not (terminated or truncated):
+            action, _ = self.model.predict(obs, deterministic=True)
+            obs, _, terminated, truncated, info = self.eval_env.step(action)
+            self.results['rl_agent']['portfolio_values'].append(info['portfolio_value'])
+            self.results['rl_agent']['weights_history'].append(info['weights'])
+            self.results['rl_agent']['cumulative_costs'].append(self.results['rl_agent']['cumulative_costs'][-1] + info['transaction_costs'])
+            turnover = np.sum(np.abs(np.array(info['weights']) - prev_weights))
+            self.results['rl_agent']['turnover_history'].append(turnover)
+            prev_weights = np.array(info['weights']).copy()
+
+    def _run_benchmarks(self):
+        logging.info("Evaluating benchmarks...")
+        num_trading_days = len(self.results['rl_agent']['portfolio_values']) - 1
+        initial_balance = self.config["env_params"]["initial_balance"]
+        if num_trading_days <= 0: return
+        start_idx = self.config["env_params"]["window_size"]
+        spy_col = f"{self.config['benchmark_ticker']}_close"
+        if spy_col in self.df_full_eval_data.columns:
+            spy_prices = self.df_full_eval_data[spy_col].iloc[start_idx : start_idx + num_trading_days + 1].values
+            if len(spy_prices) > 1: self.results['spy_benchmark'] = {'portfolio_values': (spy_prices / spy_prices[0]) * initial_balance}
+        eq_cols = [f"{t}_close" for t in self.config["agent_tickers"]]
+        if all(c in self.df_full_eval_data.columns for c in eq_cols):
+            prices_df = self.df_full_eval_data[eq_cols].iloc[start_idx : start_idx + num_trading_days + 1]
+            returns = prices_df.pct_change().dropna()
+            portfolio_returns = returns.mean(axis=1)
+            eq_values = [initial_balance]
+            for r in portfolio_returns: eq_values.append(eq_values[-1] * (1 + r))
+            self.results['equal_weight_benchmark'] = {'portfolio_values': np.array(eq_values)}
+
+    def _calculate_and_log_kpis(self):
+        for name, data in self.results.items():
+            values = np.array(data.get('portfolio_values', []))
+            if len(values) < 2: continue
+            daily_returns = np.diff(values) / values[:-1]
+            sharpe = (np.mean(daily_returns) / np.std(daily_returns)) * np.sqrt(252) if np.std(daily_returns) > 0 else 0
+            max_dd = self._calculate_max_drawdown(values)
+            cum_return = (values[-1] / values[0]) - 1
+            annual_vol = np.std(daily_returns) * np.sqrt(252)
+            num_years = len(values) / 252.0
+            annual_return = (1 + cum_return)**(1/num_years) - 1 if num_years > 0 else 0
+            calmar = annual_return / max_dd if max_dd > 0 else float('inf')
+            data['kpis'] = {"Final Portfolio Value": values[-1], "Cumulative Return": cum_return, "Annualized Volatility": annual_vol, "Annualized Sharpe Ratio": sharpe, "Max Drawdown": max_dd, "Calmar Ratio": calmar}
+            if 'turnover_history' in data:
+                data['kpis']["Average Daily Turnover"] = np.mean(data['turnover_history'])
+                data['kpis']["Total Transaction Costs"] = data['cumulative_costs'][-1]
+            logging.info(f"\n--- {name.replace('_', ' ').title()} Performance ---")
+            for k, v in data['kpis'].items():
+                format_str = ".2%" if any(s in k.lower() for s in ["return", "volatility", "drawdown"]) else ",.2f" if "value" in k.lower() else ".4f"
+                logging.info(f"{k}: {v:{format_str}}")
+
+    def _generate_plots(self):
+        logging.info("Generating plots...")
+        plt.figure(figsize=(14, 7));
+        for name, data in self.results.items():
+            if 'portfolio_values' in data: plt.plot(data['portfolio_values'], label=name.replace('_', ' ').title(), lw=2)
+        plt.title("Portfolio Value Comparison"); plt.xlabel("Trading Day"); plt.ylabel("Portfolio Value ($)")
+        plt.legend(); plt.grid(True, alpha=0.5); plt.tight_layout()
+        plt.savefig(os.path.join(self.config["plots_dir"], f"{self.base_plot_name}_performance.png")); plt.close()
+        if 'rl_agent' in self.results and 'weights_history' in self.results['rl_agent']:
+            weights_df = pd.DataFrame(self.results['rl_agent']['weights_history'], columns=self.config["agent_tickers"])
+            plt.figure(figsize=(14, 7)); plt.stackplot(weights_df.index, weights_df.T, labels=weights_df.columns)
+            plt.title("RL Agent Portfolio Weights"); plt.xlabel("Trading Day"); plt.ylabel("Weight Allocation")
+            plt.legend(loc='upper left'); plt.margins(0, 0); plt.tight_layout()
+            plt.savefig(os.path.join(self.config["plots_dir"], f"{self.base_plot_name}_weights.png")); plt.close()
+        logging.info(f"Plots saved to '{self.config['plots_dir']}' directory.")
+    
+    async def _generate_llm_report(self):
+        logging.warning("LLM report generation is currently skipped. Implement and uncomment to enable.")
+        pass
+        
+    async def run_full_evaluation(self):
+        self._load_data()
+        self._setup_environment_and_model()
+        self._run_rl_agent_simulation()
+        self._run_benchmarks()
+        self._calculate_and_log_kpis()
+        self._generate_plots()
+        await self._generate_llm_report()
+        logging.info("Evaluation script finished successfully.")
+
+    @staticmethod
+    def _calculate_max_drawdown(portfolio_values: np.ndarray) -> float:
+        if len(portfolio_values) < 2: return 0.0
+        roll_max = np.maximum.accumulate(portfolio_values)
+        drawdown = (portfolio_values - roll_max) / np.where(roll_max == 0, 1e-9, roll_max)
+        return -np.min(drawdown) if len(drawdown) > 0 else 0.0
+
+# rl/evaluate.py (CORRECTED main function)
+async def main():
     if PPO is None:
-        logging.critical("PPO module not available. Exiting evaluation.")
-        exit()
+        return
 
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-    # --- Configuration ---
-    tickers_for_agent_evaluation = ['MSFT', 'GOOGL', 'AMZN']
-    spy_ticker_symbol = 'SPY'
-    tickers_to_load_for_data = sorted(list(set(tickers_for_agent_evaluation + [spy_ticker_symbol])))
+    # Build the configuration dictionary from imported settings
+    # For evaluation, we often turn off reward shaping to get a pure performance metric.
+    eval_env_params = ENV_PARAMS.copy()
+    eval_env_params.update({
+        'volatility_penalty_weight': 0.0,
+        'loss_aversion_factor': 1.0,
+        'turnover_penalty_weight': 0.0
+    })
 
-    eval_start_date = "2023-01-01"
-    eval_end_date = "2025-06-02"
-    model_load_path = os.path.join(os.getcwd(), "models", "ppo_3asset_preOptuna_tx0.10_volP0.05_lossA1.5_rollWin20_steps300k_bestPerforming_v1.zip") # EXAMPLE PATH
+    # This dictionary now correctly uses the imported, centralized settings.
+    config = {
+        "agent_tickers": AGENT_TICKERS,
+        "benchmark_ticker": BENCHMARK_TICKER,
+        "features_to_use": FEATURES_TO_USE_IN_MODEL,
+        "start_date": START_DATE,
+        "end_date": END_DATE,
+        "model_path": MODEL_PATH,
+        "plots_dir": PLOTS_DIR,
+        "env_params": eval_env_params
+    }
     
-    window_size_env_eval = 30
-    initial_balance_env_eval = 10000.0
-    transaction_cost_percentage_eval = 0.001
-
-    eval_volatility_penalty_weight = 0.05
-    eval_loss_aversion_factor = 1.5
-    eval_rolling_volatility_window = 20
-
-    features_to_use_eval = [
-        'close', 'rsi', 'volatility_20',
-        'bollinger_hband', 'bollinger_lband', 'bollinger_mavg', 'atr'
-    ]
-
-    logging.info(f"Attempting to load full evaluation data for: {tickers_to_load_for_data} with features: {features_to_use_eval}")
-    df_full_eval_data = load_market_data_from_db(
-        tickers_list=tickers_to_load_for_data,
-        start_date=eval_start_date,
-        end_date=eval_end_date,
-        min_data_points=window_size_env_eval + 50 + eval_rolling_volatility_window,
-        feature_columns=features_to_use_eval,
-    )
-
-    if df_full_eval_data.empty:
-        logging.error("Failed to load full evaluation data. Exiting.")
-        exit()
-    logging.info(f"Full evaluation data loaded. Shape: {df_full_eval_data.shape}.")
-
-    agent_specific_columns = []
-    for ticker in tickers_for_agent_evaluation:
-        for feature in features_to_use_eval:
-            col_name = f"{ticker}_{feature}"
-            if col_name in df_full_eval_data.columns:
-                agent_specific_columns.append(col_name)
-            else:
-                logging.error(f"CRITICAL: Column {col_name} for agent not found.")
-                exit()
-    
-    expected_agent_cols = len(tickers_for_agent_evaluation) * len(features_to_use_eval)
-    if len(agent_specific_columns) != expected_agent_cols:
-        logging.error(f"Agent column mismatch. Expected {expected_agent_cols}, got {len(agent_specific_columns)}.")
-        exit()
-    df_agent_env_data = df_full_eval_data[agent_specific_columns].copy()
-
-    logging.info(f"Initializing PortfolioEnv for evaluation with {len(tickers_for_agent_evaluation)} agent assets...")
-    eval_env = PortfolioEnv(
-        df_agent_env_data,
-        feature_columns_ordered=features_to_use_eval,
-        window_size=window_size_env_eval,
-        initial_balance=initial_balance_env_eval,
-        transaction_cost_pct=transaction_cost_percentage_eval,
-        volatility_penalty_weight=eval_volatility_penalty_weight,
-        loss_aversion_factor=eval_loss_aversion_factor,
-        rolling_volatility_window=eval_rolling_volatility_window
-    )
     try:
-        model = PPO.load(model_load_path, env=eval_env)
-        logging.info(f"Model {model_load_path} loaded successfully.")
-    except FileNotFoundError:
-        logging.error(f"Model file not found at {model_load_path}.")
-        exit()
+        evaluator = PortfolioEvaluator(config)
+        await evaluator.run_full_evaluation()
     except Exception as e:
-        logging.error(f"Error initializing/loading model: {e}", exc_info=True)
-        exit()
+        logging.error(f"An error occurred during the evaluation pipeline: {e}", exc_info=True)
 
-    # --- Run RL Agent Evaluation & Log Data for Analysis ---
-    logging.info("Evaluating RL Agent...")
-    obs, info = eval_env.reset()
-    
-    rl_portfolio_values = [eval_env.portfolio_value]
-    agent_weights_history = [eval_env.weights.copy()]
-    agent_turnover_history = [] 
-    agent_transaction_costs_stepwise = [] # Log step-wise costs
-    agent_cumulative_costs_history = [0.0] 
-    agent_raw_daily_returns_history = []
-    
-    previous_agent_weights = eval_env.weights.copy()
-
-    terminated, truncated = False, False
-    while not (terminated or truncated):
-        action, _states = model.predict(obs, deterministic=True)
-        obs, reward, terminated, truncated, info_step = eval_env.step(action)
-        
-        current_agent_weights = np.array(info_step['weights'])
-        agent_weights_history.append(current_agent_weights)
-        
-        turnover = np.sum(np.abs(current_agent_weights - previous_agent_weights))
-        agent_turnover_history.append(turnover)
-        previous_agent_weights = current_agent_weights.copy()
-        
-        agent_transaction_costs_stepwise.append(info_step['transaction_costs'])
-        agent_cumulative_costs_history.append(agent_cumulative_costs_history[-1] + info_step['transaction_costs'])
-        agent_raw_daily_returns_history.append(info_step['raw_daily_return'])
-        rl_portfolio_values.append(info_step['portfolio_value'])
-
-    rl_portfolio_values = np.array(rl_portfolio_values)
-    agent_weights_history_df = pd.DataFrame(agent_weights_history, columns=tickers_for_agent_evaluation)
-    agent_raw_daily_returns_history = np.array(agent_raw_daily_returns_history)
-    agent_turnover_history = np.array(agent_turnover_history)
-    agent_cumulative_costs_history = np.array(agent_cumulative_costs_history) # Already includes initial 0
-
-
-    logging.info(f"\n--- RL Agent Performance ({', '.join(tickers_for_agent_evaluation)}) ---")
-    logging.info(f"Final Portfolio Value: ${rl_portfolio_values[-1]:.2f}")
-    logging.info(f"Sharpe Ratio: {calculate_sharpe_ratio(rl_portfolio_values):.4f}")
-    logging.info(f"Max Drawdown: {calculate_max_drawdown(rl_portfolio_values):.4%}")
-    logging.info(f"Total Transaction Costs: ${agent_cumulative_costs_history[-1]:.2f}")
-    logging.info(f"Average Daily Turnover: {np.mean(agent_turnover_history):.4f}" if len(agent_turnover_history) > 0 else "N/A")
-
-    # --- Benchmarks ---
-    num_actual_trading_days = len(rl_portfolio_values) - 1
-    buy_and_hold_spy_values = np.array([])
-    spy_daily_returns = np.array([])
-    equal_weight_portfolio_values = np.array([])
-    eq_daily_returns = np.array([])
-
-    spy_close_col = f"{spy_ticker_symbol}_close"
-    if spy_close_col in df_full_eval_data.columns:
-        logging.info(f"\n--- Buy & Hold ({spy_ticker_symbol}) Benchmark ---")
-        start_idx_spy = window_size_env_eval -1 
-        end_idx_spy = start_idx_spy + num_actual_trading_days 
-        if end_idx_spy < len(df_full_eval_data):
-            spy_prices = df_full_eval_data[spy_close_col].iloc[start_idx_spy : end_idx_spy + 1].values
-            if len(spy_prices) > 1:
-                buy_and_hold_spy_values = (spy_prices / spy_prices[0]) * initial_balance_env_eval
-                if len(buy_and_hold_spy_values) > 1:
-                    spy_daily_returns = np.diff(buy_and_hold_spy_values) / buy_and_hold_spy_values[:-1]
-                logging.info(f"Final Val: ${buy_and_hold_spy_values[-1]:.2f}, Sharpe: {calculate_sharpe_ratio(buy_and_hold_spy_values):.4f}, Max DD: {calculate_max_drawdown(buy_and_hold_spy_values):.4%}")
-        else: logging.warning(f"SPY data too short.")
-    else: logging.warning(f"SPY col '{spy_close_col}' not found.")
-        
-    logging.info(f"\n--- Equal-Weight Portfolio Benchmark ({', '.join(tickers_for_agent_evaluation)}) ---")
-    eq_weight_close_cols = [f"{t}_close" for t in tickers_for_agent_evaluation if f"{t}_close" in df_full_eval_data.columns]
-    if eq_weight_close_cols and len(eq_weight_close_cols) == len(tickers_for_agent_evaluation) and num_actual_trading_days > 0:
-        num_assets_eq = len(eq_weight_close_cols)
-        eq_w = np.ones(num_assets_eq) / num_assets_eq
-        start_idx_eq = window_size_env_eval -1
-        end_idx_eq = start_idx_eq + num_actual_trading_days
-        if end_idx_eq < len(df_full_eval_data):
-            prices_df_eq = df_full_eval_data[eq_weight_close_cols].iloc[start_idx_eq : end_idx_eq +1]
-            if len(prices_df_eq) > 1:
-                asset_returns_eq = prices_df_eq.pct_change().dropna() # First row is NaN, then N-1 returns
-                portfolio_returns_eq = asset_returns_eq.dot(eq_w) # Series of N-1 daily returns
-                
-                temp_eq_values = [initial_balance_env_eval]
-                for r in portfolio_returns_eq.values: temp_eq_values.append(temp_eq_values[-1] * (1 + r))
-                equal_weight_portfolio_values = np.array(temp_eq_values)
-
-                if len(equal_weight_portfolio_values) > 1:
-                    eq_daily_returns = np.diff(equal_weight_portfolio_values) / equal_weight_portfolio_values[:-1]
-                logging.info(f"Final Val: ${equal_weight_portfolio_values[-1]:.2f}, Sharpe: {calculate_sharpe_ratio(equal_weight_portfolio_values):.4f}, Max DD: {calculate_max_drawdown(equal_weight_portfolio_values):.4%}")
-        else: logging.warning(f"Equal-weight data too short.")
-    else: logging.warning(f"Equal-weight setup failed.")
-
-    # ====== Plotting ======
-    plots_dir = "plots"
-    os.makedirs(plots_dir, exist_ok=True)
-    base_plot_name = os.path.basename(model_load_path).replace(".zip", "") if model_load_path else "evaluation"
-
-    # 1. Portfolio Value Comparison (remains the same)
-    plt.figure(figsize=(14, 7))
-    plt.plot(rl_portfolio_values, label=f"RL Agent ({len(tickers_for_agent_evaluation)} assets)", lw=2, zorder=3)
-    if len(buy_and_hold_spy_values) > 0: plt.plot(buy_and_hold_spy_values, label=f"B&H {spy_ticker_symbol}", ls='--', zorder=2)
-    if len(equal_weight_portfolio_values) > 0: plt.plot(equal_weight_portfolio_values, label=f"Eq-W. ({len(eq_weight_close_cols)} assets)", ls=':', zorder=1)
-    plt.title("Portfolio Value Comparison"); plt.xlabel("Trading Timestep (Days)"); plt.ylabel("Portfolio Value ($)")
-    plt.legend(); plt.grid(True); plt.tight_layout()
-    plt.savefig(os.path.join(plots_dir, f"{base_plot_name}_performance.png")); plt.close()
-    logging.info(f"Performance plot saved to {os.path.join(plots_dir, f'{base_plot_name}_performance.png')}")
-
-    # 2. Portfolio Weights Allocation
-    if not agent_weights_history_df.empty:
-        plt.figure(figsize=(14, 7))
-        plt.stackplot(range(len(agent_weights_history_df)), agent_weights_history_df.T, labels=agent_weights_history_df.columns)
-        plt.title("RL Agent Portfolio Weights Allocation"); plt.xlabel("Trading Timestep (Days)"); plt.ylabel("Weight Proportion")
-        plt.legend(loc='upper left'); plt.margins(0,0); plt.tight_layout()
-        plt.savefig(os.path.join(plots_dir, f"{base_plot_name}_weights.png")); plt.close()
-        logging.info(f"Weights allocation plot saved to {os.path.join(plots_dir, f'{base_plot_name}_weights.png')}")
-
-    # 3. Portfolio Turnover
-    if len(agent_turnover_history) > 0:
-        plt.figure(figsize=(14, 7))
-        plt.plot(agent_turnover_history, label="Daily Turnover", lw=1.5)
-        plt.title("RL Agent Portfolio Turnover"); plt.xlabel("Trading Timestep (Days)"); plt.ylabel("Turnover (Sum of Abs Weight Changes)")
-        plt.legend(); plt.grid(True); plt.tight_layout()
-        plt.savefig(os.path.join(plots_dir, f"{base_plot_name}_turnover.png")); plt.close()
-        logging.info(f"Turnover plot saved to {os.path.join(plots_dir, f'{base_plot_name}_turnover.png')}")
-
-    # 4. Cumulative Transaction Costs
-    # Ensure agent_cumulative_costs_history has the same length as the number of steps if plotting on same x-axis
-    # rl_portfolio_values has N+1 points, agent_raw_daily_returns has N points.
-    # agent_cumulative_costs_history also has N+1 points (starts with 0)
-    if len(agent_cumulative_costs_history) > 0 :
-        plt.figure(figsize=(14, 7))
-        plt.plot(agent_cumulative_costs_history, label="Cumulative Transaction Costs", lw=1.5, color='red')
-        plt.title("RL Agent Cumulative Transaction Costs"); plt.xlabel("Trading Timestep (Days)"); plt.ylabel("Total Costs ($)")
-        plt.legend(); plt.grid(True); plt.tight_layout()
-        plt.savefig(os.path.join(plots_dir, f"{base_plot_name}_transaction_costs.png")); plt.close()
-        logging.info(f"Transaction costs plot saved to {os.path.join(plots_dir, f'{base_plot_name}_transaction_costs.png')}")
-
-    # 5. Distribution of Daily Returns
-    plt.figure(figsize=(12, 7))
-    plot_dist_flag = False
-    if len(agent_raw_daily_returns_history) > 0:
-        sns.histplot(agent_raw_daily_returns_history, kde=True, label="RL Agent Raw Returns", stat="density", alpha=0.6, bins=50)
-        plot_dist_flag = True
-    if len(spy_daily_returns) > 0:
-        sns.histplot(spy_daily_returns, kde=True, label=f"SPY B&H Returns", stat="density", alpha=0.6, bins=50)
-        plot_dist_flag = True
-    if len(eq_daily_returns) > 0:
-        sns.histplot(eq_daily_returns, kde=True, label=f"Equal-Weight Returns", stat="density", alpha=0.6, bins=50)
-        plot_dist_flag = True
-    
-    if plot_dist_flag:
-        plt.title("Distribution of Daily Returns"); plt.xlabel("Daily Return"); plt.ylabel("Density")
-        plt.legend(); plt.grid(True, alpha=0.3); plt.tight_layout()
-        plt.savefig(os.path.join(plots_dir, f"{base_plot_name}_returns_distribution.png")); plt.close()
-        logging.info(f"Returns distribution plot saved to {os.path.join(plots_dir, f'{base_plot_name}_returns_distribution.png')}")
-    else:
-        logging.info("Skipping returns distribution plot as no return series were available.")
-        plt.close() # Close the figure if nothing was plotted
-
-
-    # ====== CSV Data Export ======
-    # Create DataFrames for CSV export - ensuring consistent lengths for time series data
-    # Number of trading days (steps where returns/turnover occur)
-    num_trading_days = num_actual_trading_days
-
-    # Timestep index for series of length N (daily returns, turnover)
-    day_index = pd.Index(range(1, num_trading_days + 1), name="Trading_Day")
-    # Timestep index for series of length N+1 (portfolio values, weights, cumulative costs)
-    value_index = pd.Index(range(num_trading_days + 1), name="Timestep_Value_Point")
-
-
-    # Main summary DataFrame for time series data
-    summary_data_dict = {}
-    summary_data_dict['RL_Agent_Portfolio_Value'] = pd.Series(rl_portfolio_values, index=value_index)
-    if len(agent_raw_daily_returns_history) == num_trading_days:
-        summary_data_dict['RL_Agent_Raw_Daily_Return'] = pd.Series(agent_raw_daily_returns_history, index=day_index)
-    if len(agent_turnover_history) == num_trading_days:
-        summary_data_dict['RL_Agent_Daily_Turnover'] = pd.Series(agent_turnover_history, index=day_index)
-    if len(agent_cumulative_costs_history) == num_trading_days + 1:
-         summary_data_dict['RL_Agent_Cumulative_Costs'] = pd.Series(agent_cumulative_costs_history, index=value_index)
-
-
-    if len(buy_and_hold_spy_values) == num_trading_days + 1:
-        summary_data_dict['SPY_Portfolio_Value'] = pd.Series(buy_and_hold_spy_values, index=value_index)
-    if len(spy_daily_returns) == num_trading_days:
-        summary_data_dict['SPY_Daily_Return'] = pd.Series(spy_daily_returns, index=day_index)
-    
-    if len(equal_weight_portfolio_values) == num_trading_days + 1:
-        summary_data_dict['EqualWeight_Portfolio_Value'] = pd.Series(equal_weight_portfolio_values, index=value_index)
-    if len(eq_daily_returns) == num_trading_days:
-        summary_data_dict['EqualWeight_Daily_Return'] = pd.Series(eq_daily_returns, index=day_index)
-
-    # Combine into a single DataFrame, aligning by index (outer join to keep all timesteps)
-    # Since some series are N and some N+1, we'll save weights separately.
-    # For main summary, we can use day_index and add portfolio values carefully.
-    
-    # Let's create a DataFrame with a common index from 0 to num_trading_days
-    # Portfolio values and cumulative costs are naturally on this index (N+1 points)
-    # Daily returns and turnover are for day 1 to N (N points) - we can assign them to index 1 to N
-    
-    # Max length for DataFrame
-    max_len = num_trading_days + 1
-    df_index = pd.RangeIndex(max_len, name="Timestep")
-
-    data_for_csv = {'Timestep': df_index}
-    data_for_csv['RL_Agent_Value'] = pd.Series(rl_portfolio_values, index=df_index)
-    data_for_csv['RL_Agent_Raw_Return'] = pd.Series([np.nan] + list(agent_raw_daily_returns_history) if len(agent_raw_daily_returns_history) == num_trading_days else [np.nan]*max_len, index=df_index)
-    data_for_csv['RL_Agent_Turnover'] = pd.Series([np.nan] + list(agent_turnover_history) if len(agent_turnover_history) == num_trading_days else [np.nan]*max_len, index=df_index)
-    data_for_csv['RL_Agent_Cumulative_Costs'] = pd.Series(agent_cumulative_costs_history, index=df_index)
-
-    if len(buy_and_hold_spy_values) > 0:
-        data_for_csv['SPY_Value'] = pd.Series(buy_and_hold_spy_values, index=df_index)
-        data_for_csv['SPY_Return'] = pd.Series([np.nan] + list(spy_daily_returns) if len(spy_daily_returns) == num_trading_days else [np.nan]*max_len, index=df_index)
-    
-    if len(equal_weight_portfolio_values) > 0:
-        data_for_csv['EqualWeight_Value'] = pd.Series(equal_weight_portfolio_values, index=df_index)
-        data_for_csv['EqualWeight_Return'] = pd.Series([np.nan] + list(eq_daily_returns) if len(eq_daily_returns) == num_trading_days else [np.nan]*max_len, index=df_index)
-
-    summary_df = pd.DataFrame(data_for_csv)
-    summary_csv_path = os.path.join(plots_dir, f"{base_plot_name}_summary_timeseries_data.csv")
-    summary_df.to_csv(summary_csv_path, index=False, float_format='%.6f')
-    logging.info(f"Summary timeseries data saved to {summary_csv_path}")
-
-    # Weights history (already a DataFrame: agent_weights_history_df)
-    # Index should represent the point in time the weights are set FOR (0 to N)
-    agent_weights_history_df.index.name = "Timestep_Weights_Set_For_Next_Day"
-    weights_csv_path = os.path.join(plots_dir, f"{base_plot_name}_weights_history.csv")
-    agent_weights_history_df.to_csv(weights_csv_path, float_format='%.6f')
-    logging.info(f"Agent weights history saved to {weights_csv_path}")
-
-
-    logging.info("\nEvaluation script finished.")
+if __name__ == "__main__":
+    # Ensure you are running this with asyncio
+    asyncio.run(main())
