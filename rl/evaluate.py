@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import asyncio
+from llm.advisor import generate_investment_report
 
 # Absolute imports from the project root perspective
 from rl.portfolio_env import PortfolioEnv
@@ -27,10 +28,10 @@ except ImportError:
 # --- Configuration Dictionary ---
 # IMPORTANT: This path must point to the model you want to evaluate.
 # You might make this a command-line argument for easier use.
-MODEL_PATH = "models/best_PPO_Portfolio_Final_20250609-155500/best_model.zip"
+MODEL_PATH = "models/best_PPO_Portfolio_Final_20250610-093858/best_model.zip"
 PLOTS_DIR = "plots"
-START_DATE = "2024-01-01"
-END_DATE = "2025-06-02"
+START_DATE = "2008-01-01"
+END_DATE = "2009-12-31"
 
 
 class PortfolioEvaluator:
@@ -146,9 +147,53 @@ class PortfolioEvaluator:
             plt.savefig(os.path.join(self.config["plots_dir"], f"{self.base_plot_name}_weights.png")); plt.close()
         logging.info(f"Plots saved to '{self.config['plots_dir']}' directory.")
     
+
+
+    # In rl/evaluate.py, replace the existing method with this new version:
+
     async def _generate_llm_report(self):
-        logging.warning("LLM report generation is currently skipped. Implement and uncomment to enable.")
-        pass
+        """
+        Generates and prints investment reports for different user goals,
+        with a robust delay and retry mechanism to handle strict free tier rate limits.
+        """
+        if 'rl_agent' not in self.results:
+            logging.warning("RL Agent results not found, skipping LLM report.")
+            return
+
+        agent_kpis = self.results['rl_agent'].get('kpis', {})
+        final_weights_list = self.results['rl_agent'].get('weights_history', [[]])[-1]
+        final_weights_dict = {ticker: weight for ticker, weight in zip(self.config["agent_tickers"], final_weights_list)}
+
+        user_goals = ["Long-Term Growth", "Mid-Term Balanced", "Short-Term Speculation"]
+
+        print("\n" + "="*80)
+        print(" GENERATING PERSONALIZED INVESTMENT REPORTS ".center(80, "="))
+        print("="*80)
+
+        for goal in user_goals:
+            max_retries = 2
+            for attempt in range(max_retries):
+                report = await generate_investment_report(
+                    kpis=agent_kpis,
+                    weights=final_weights_dict,
+                    user_goal=goal
+                )
+                
+                # Check if the report contains an error message
+                if "An error occurred" in report and "429" in report:
+                    logging.warning(f"Rate limit hit on attempt {attempt + 1} for goal '{goal}'. Retrying in 65 seconds...")
+                    await asyncio.sleep(65) # Wait a bit longer than a minute
+                    continue
+                else:
+                    # If successful, print the report and break the retry loop
+                    print(f"\n--- REPORT FOR USER GOAL: {goal} ---")
+                    print(report)
+                    
+                    # Wait before starting the next goal's generation
+                    if goal != user_goals[-1]:
+                         print("\n--- [Rate Limiter] Waiting for 65 seconds before next API call... ---")
+                         await asyncio.sleep(65)
+                    break # Exit the retry loop
         
     async def run_full_evaluation(self):
         self._load_data()

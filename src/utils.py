@@ -166,54 +166,56 @@ def load_and_split_data(start_date: str, end_date: str, **kwargs):
         db_path=DEFAULT_DB_PATH
     )
     return df
-# In src/utils.py, REPLACE the old calculate_sharpe_for_optuna function with this one:
 
-def calculate_sharpe_for_optuna(model: BaseAlgorithm, eval_env: gym.Env) -> float:
+def calculate_evaluation_kpis(model: BaseAlgorithm, eval_env: gym.Env) -> dict:
     """
-    Evaluates the agent on the evaluation environment and calculates the Sharpe ratio.
-    (Corrected to handle Gymnasium API)
+    Evaluates the agent on the evaluation environment and calculates a dictionary of KPIs.
     """
-    logging.info("Starting evaluation for Sharpe Ratio calculation...")
-    
-    # --- FIX 1: Correctly unpack the tuple from env.reset() ---
+    logging.info("Starting evaluation for KPI calculation...")
     obs, info = eval_env.reset()
+    terminated, truncated = False, False
     
-    terminated = False
-    truncated = False
+    portfolio_values = [eval_env.get_wrapper_attr('initial_balance')]
+    turnover_history = []
     
-    portfolio_values = []
-    # Get initial portfolio value from the info dictionary
-    if 'portfolio_value' in info:
-        portfolio_values.append(info['portfolio_value'])
-    else:
-        # Fallback for Monitor-wrapped envs that don't put it in info on reset
-        portfolio_values.append(eval_env.get_wrapper_attr('initial_balance'))
-
-    # --- FIX 2: Correctly loop using terminated and truncated flags ---
+    # Store the weights at each step
+    weights_history = [eval_env.get_wrapper_attr('weights').copy()]
+    
     while not (terminated or truncated):
         action, _ = model.predict(obs, deterministic=True)
+        obs, _, terminated, truncated, info = eval_env.step(action)
         
-        # --- FIX 3: Correctly unpack the 5 values from env.step() ---
-        obs, reward, terminated, truncated, info = eval_env.step(action)
+        # Calculate turnover for this step
+        prev_weights = weights_history[-1]
+        current_weights = info.get('weights', prev_weights)
+        turnover = np.sum(np.abs(np.array(current_weights) - np.array(prev_weights)))
         
-        if 'portfolio_value' in info:
-             portfolio_values.append(info['portfolio_value'])
+        portfolio_values.append(info.get('portfolio_value'))
+        turnover_history.append(turnover)
+        weights_history.append(current_weights)
 
     logging.info(f"Evaluation finished. Portfolio value records captured: {len(portfolio_values)}")
 
     if len(portfolio_values) < 2:
-        logging.warning("Not enough portfolio values to calculate Sharpe ratio.")
-        return -1.0
+        return {"sharpe_ratio": -1.0} # Return a default if something went wrong
 
     portfolio_df = pd.DataFrame({'value': portfolio_values})
     daily_returns = portfolio_df['value'].pct_change().dropna()
 
+    kpis = {}
     if daily_returns.empty or daily_returns.std() == 0:
-        logging.warning("Could not calculate Sharpe ratio (returns are empty or std is zero).")
-        return -1.0
+        kpis['sharpe_ratio'] = -1.0
+    else:
+        # Calculate all KPIs
+        kpis['sharpe_ratio'] = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252)
+        kpis['cumulative_return'] = (portfolio_df['value'].iloc[-1] / portfolio_df['value'].iloc[0]) - 1
+        
+        # Calculate Max Drawdown
+        roll_max = portfolio_df['value'].cummax()
+        drawdown = (portfolio_df['value'] - roll_max) / roll_max
+        kpis['max_drawdown'] = drawdown.min()
+
+    kpis['average_daily_turnover'] = np.mean(turnover_history) if turnover_history else 0.0
     
-    # Annualize the Sharpe Ratio (assuming daily data)
-    sharpe_ratio = (daily_returns.mean() / daily_returns.std()) * np.sqrt(252)
-    
-    logging.info(f"Calculated Annualized Sharpe Ratio: {sharpe_ratio:.4f}")
-    return sharpe_ratio
+    logging.info(f"Calculated KPIs: {kpis}")
+    return kpis

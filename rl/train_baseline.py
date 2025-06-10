@@ -86,6 +86,7 @@ def train_final_model():
         train_env,
         verbose=1,
         tensorboard_log=LOGS_DIR,
+        device='cpu',
         **BEST_PPO_PARAMS
     )
 
