@@ -103,6 +103,7 @@ def fetch_and_store_ticker_data(ticker_symbol: str, start_date_str: str, end_dat
     df['bollinger_lband'] = bollinger.bollinger_lband()
     df['bollinger_mavg'] = bollinger.bollinger_mavg()
     df['atr'] = ta.volatility.average_true_range(df.high, df.low, df.close, window=14)
+    df['close_vs_sma_10'] = (df['close'] / df['sma_10']) - 1.0
     df['close_vs_sma_50'] = (df['close'] / df['sma_50']) - 1.0
     df['bollinger_width'] = (df['bollinger_hband'] - df['bollinger_lband']) / df['bollinger_mavg']
     df['obv'] = ta.volume.on_balance_volume(close=df['close'], volume=df['volume'])

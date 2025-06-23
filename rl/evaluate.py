@@ -9,13 +9,13 @@ import asyncio
 from llm.advisor import generate_investment_report
 
 # Absolute imports from the project root perspective
-from rl.portfolio_env import PortfolioEnv
+from rl.portfolio_env_short_term import PortfolioEnvShortTerm
 from src.utils import load_market_data_from_db
 # from llm.advisor import generate_report_async # Can be uncommented when ready
-from config import (
+from config_short_term import (
     AGENT_TICKERS,
     BENCHMARK_TICKER,
-    FEATURES_TO_USE_IN_MODEL,
+    FEATURES_TO_USE_IN_MODEL, 
     ENV_PARAMS
 )
 
@@ -28,10 +28,10 @@ except ImportError:
 # --- Configuration Dictionary ---
 # IMPORTANT: This path must point to the model you want to evaluate.
 # You might make this a command-line argument for easier use.
-MODEL_PATH = "models/best_PPO_Portfolio_Final_20250610-093858/best_model.zip"
+MODEL_PATH = "models/best_PPO_Portfolio_Short_Term_20250611-115836/best_model.zip"
 PLOTS_DIR = "plots"
-START_DATE = "2008-01-01"
-END_DATE = "2009-12-31"
+START_DATE = "2000-01-01"
+END_DATE = "2006-12-30"
 
 
 class PortfolioEvaluator:
@@ -69,7 +69,7 @@ class PortfolioEvaluator:
             raise ValueError(f"Agent-specific columns missing from data: {missing}")
 
         df_agent_env_data = self.df_full_eval_data[agent_specific_cols].copy()
-        self.eval_env = PortfolioEnv(df=df_agent_env_data, feature_columns_ordered=self.config["features_to_use"], **self.config["env_params"])
+        self.eval_env = PortfolioEnvShortTerm(df=df_agent_env_data, feature_columns_ordered=self.config["features_to_use"], **self.config["env_params"])
         
         if not os.path.exists(self.config["model_path"]): raise FileNotFoundError(f"Model file not found at {self.config['model_path']}")
         self.model = PPO.load(self.config["model_path"], env=self.eval_env)
@@ -202,7 +202,7 @@ class PortfolioEvaluator:
         self._run_benchmarks()
         self._calculate_and_log_kpis()
         self._generate_plots()
-        await self._generate_llm_report()
+        #await self._generate_llm_report()
         logging.info("Evaluation script finished successfully.")
 
     @staticmethod

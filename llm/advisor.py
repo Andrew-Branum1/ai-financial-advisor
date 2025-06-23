@@ -14,18 +14,19 @@ if not GEMINI_API_KEY:
 genai.configure(api_key=GEMINI_API_KEY)
 
 
-def _build_prompt(kpis: dict, weights: dict, user_goal: str) -> str:
-    """Builds a detailed prompt for the LLM based on the user's goal."""
+# In llm/advisor.py, replace the existing _build_prompt function
 
-    # The prompt building logic remains the same as it's excellent.
+def _build_prompt(kpis: dict, weights: dict, user_goal: str) -> str:
+    """Builds a structured, data-driven prompt for the LLM."""
+
     base_prompt = textwrap.dedent(f"""
         You are an expert AI financial advisor named Gemini, speaking to a beginner investor.
-        Your tone should be clear, educational, and reassuring. Avoid complex jargon.
+        Your tone should be clear, educational, and reassuring. Use simple language and avoid jargon.
 
-        Here is the performance analysis of an AI-driven investment strategy over the last 1.5 years:
+        Here is the performance data for an AI-driven investment strategy:
         - Cumulative Return: {kpis.get('Cumulative Return', 0):.2%}
-        - Max Drawdown (peak-to-trough loss): {kpis.get('Max Drawdown', 0):.2%}
-        - Annualized Sharpe Ratio (risk-adjusted return): {kpis.get('Annualized Sharpe Ratio', 0):.2f}
+        - Max Drawdown: {kpis.get('Max Drawdown', 0):.2%}
+        - Annualized Sharpe Ratio: {kpis.get('Annualized Sharpe Ratio', 0):.2f}
 
         The AI's final recommended portfolio allocation is:
         - Apple (AAPL): {weights.get('AAPL', 0):.1%}
@@ -33,32 +34,19 @@ def _build_prompt(kpis: dict, weights: dict, user_goal: str) -> str:
         - Google (GOOGL): {weights.get('GOOGL', 0):.1%}
 
         ---
+        Based on the user's goal, provide a report in the following format:
+        **Quick Summary:** (A 1-2 sentence overview of the result.)
+        **Key Metrics Explained:** (Use bullet points to simply explain what the Cumulative Return, Max Drawdown, and Sharpe Ratio mean in this context.)
+        **Final Takeaway:** (A 1-2 sentence concluding thought.)
+        ---
     """)
 
     if user_goal == "Long-Term Growth":
-        goal_instructions = textwrap.dedent("""
-            The user's goal is 'Long-Term Growth'.
-            Write a 3-paragraph report.
-            1. Start with a positive summary of the strategy's performance.
-            2. Explain that for long-term investing, consistency and avoiding major losses (drawdown) are key. Relate the results to this principle.
-            3. Conclude with a reassuring statement about how this diversified portfolio of quality tech companies is a sensible approach for long-term goals.
-        """)
+        goal_instructions = "The user's goal is **Long-Term Growth**. Emphasize safety, diversification, and consistency in your explanations."
     elif user_goal == "Mid-Term Balanced":
-        goal_instructions = textwrap.dedent("""
-            The user's goal is 'Mid-Term Balanced'.
-            Write a 3-paragraph report.
-            1. Summarize the performance, highlighting the Sharpe Ratio as a measure of the risk/reward balance.
-            2. Explain the concept of a trade-off: this strategy aims for steady growth rather than maximum possible gains, making it suitable for a 3-5 year horizon.
-            3. Conclude by mentioning that the allocation is actively managed but appears stable, which is good for a balanced approach.
-        """)
+        goal_instructions = "The user's goal is a **Mid-Term Balanced** approach. Emphasize the balance between risk (drawdown) and reward (return) in your explanations."
     else:  # Short-Term Speculation
-        goal_instructions = textwrap.dedent("""
-            The user's goal is 'Short-Term Speculation'.
-            Write a 3-paragraph report in a more direct tone.
-            1. Directly state the cumulative return and the associated risk (Max Drawdown).
-            2. Emphasize that short-term strategies are inherently high-risk and past performance does not guarantee future results.
-            3. Conclude by stating that this allocation reflects current market indicators as analyzed by the AI, but should be monitored closely by a speculative investor.
-        """)
+        goal_instructions = "The user's goal is **Short-Term Speculation**. Use a direct tone. Emphasize that the strategy is high-risk and that past performance is not a guarantee of future results."
 
     return base_prompt + goal_instructions
 
