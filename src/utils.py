@@ -13,6 +13,59 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'market_data.db')
 
+def load_market_data_for_universal_env(
+    tickers_list: list,
+    feature_columns: list,
+    start_date: str,
+    end_date: str,
+    db_path: str = DEFAULT_DB_PATH
+) -> pd.DataFrame:
+    """
+    Loads market data in a long format suitable for the universal environment.
+    It does NOT pivot the data, keeping it scalable.
+
+    Returns:
+        pd.DataFrame: A DataFrame with columns ['date', 'ticker', 'feature1', 'feature2', ...],
+                      indexed by date.
+    """
+    if not os.path.exists(db_path):
+        logging.error(f"Database file not found at {db_path}")
+        return pd.DataFrame()
+
+    try:
+        conn = sqlite3.connect(db_path)
+        columns_to_select_str = ", ".join(sorted(list(set(feature_columns))))
+        
+        query = f"""
+            SELECT date, ticker, {columns_to_select_str} 
+            FROM price_data
+            WHERE ticker IN ({','.join('?' for _ in tickers_list)})
+            AND date BETWEEN ? AND ?
+            ORDER BY date ASC, ticker ASC
+        """
+        
+        params = tickers_list + [start_date, end_date]
+        long_df = pd.read_sql_query(query, conn, params=params, parse_dates=['date'])
+        
+    except Exception as e:
+        logging.error(f"Error querying database: {e}")
+        return pd.DataFrame()
+    finally:
+        if 'conn' in locals() and conn:
+            conn.close()
+
+    if long_df.empty:
+        logging.warning("No data returned from the database for the given parameters.")
+        return pd.DataFrame()
+        
+    # Forward-fill and back-fill missing values per ticker
+    long_df = long_df.groupby('ticker').apply(lambda group: group.ffill().bfill())
+    long_df.dropna(inplace=True) # Drop any remaining NaNs
+
+    logging.info(f"Loaded long-format data with shape: {long_df.shape}")
+    return long_df.set_index('date')
+
+
 def load_market_data_from_db(
     tickers_list: list = None,
     feature_columns: list = None,
