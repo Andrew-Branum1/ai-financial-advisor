@@ -4,14 +4,14 @@ import os
 from datetime import datetime
 
 # Absolute imports from the project root perspective
-from rl.portfolio_env import PortfolioEnv
+from rl.portfolio_env_short_term import PortfolioEnvShortTerm
 from src.utils import load_and_split_data
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.monitor import Monitor
 
 # --- MODIFICATION: Import all settings from the central config file ---
-from config import (
+from config_short_term import (
     AGENT_TICKERS,
     FEATURES_TO_USE_IN_MODEL,
     BEST_PPO_PARAMS,
@@ -25,7 +25,7 @@ os.makedirs(LOGS_DIR, exist_ok=True)
 os.makedirs(MODELS_DIR, exist_ok=True)
 
 timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-MODEL_NAME = f"PPO_Portfolio_Final_{timestamp}"
+MODEL_NAME = f"PPO_Portfolio_Short_Term_{timestamp}"
 MODEL_SAVE_PATH = os.path.join(MODELS_DIR, MODEL_NAME)
 LOG_PATH = os.path.join(LOGS_DIR, MODEL_NAME)
 
@@ -62,8 +62,8 @@ def train_final_model():
     # --- Environment Setup ---
     logging.info("Setting up environments...")
     # --- MODIFICATION: Pass consistent features and params to the environment ---
-    train_env = PortfolioEnv(df=df_train, feature_columns_ordered=FEATURES_TO_USE_IN_MODEL, **ENV_PARAMS)
-    eval_env = PortfolioEnv(df=df_eval, feature_columns_ordered=FEATURES_TO_USE_IN_MODEL, **ENV_PARAMS)
+    train_env = PortfolioEnvShortTerm(df=df_train, feature_columns_ordered=FEATURES_TO_USE_IN_MODEL, **ENV_PARAMS)
+    eval_env = PortfolioEnvShortTerm(df=df_eval, feature_columns_ordered=FEATURES_TO_USE_IN_MODEL, **ENV_PARAMS)
     
     train_env = Monitor(train_env, LOG_PATH)
     eval_env = Monitor(eval_env)
