@@ -3,156 +3,435 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Financial Advisor Dashboard</title>
+    <title>AI Financial Advisor - First-Time Investor Guide</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; }
-        .report-text { white-space: pre-wrap; }
+        .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .card-hover { transition: all 0.3s ease; }
+        .card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        .loading-spinner { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800">
 
-    <div class="container mx-auto p-4 md:p-8">
-        <header class="mb-8">
-            <h1 class="text-4xl font-bold text-gray-900">AI Financial Advisor Dashboard</h1>
-            <p class="text-lg text-gray-600 mt-2">Latest performance reports from the RL trading agent.</p>
+    <div class="min-h-screen">
+        <!-- Header -->
+        <header class="gradient-bg text-white py-8">
+            <div class="container mx-auto px-4">
+                <h1 class="text-4xl font-bold text-center mb-2">🤖 AI Financial Advisor</h1>
+                <p class="text-xl text-center opacity-90">Your Personal Guide to Smart Investing</p>
+            </div>
         </header>
 
-        <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
-            <div class="flex flex-col md:flex-row justify-between items-center mb-6">
-                <div>
-                    <h2 class="text-2xl font-semibold">Evaluation Reports</h2>
-                    <p class="text-gray-500">Select a report to view details.</p>
+        <div class="container mx-auto px-4 py-8">
+            
+            <!-- Welcome Section -->
+            <div class="bg-white rounded-2xl shadow-lg p-8 mb-8 card-hover">
+                <div class="text-center mb-6">
+                    <h2 class="text-3xl font-bold text-gray-900 mb-4">Welcome, First-Time Investor! 🎉</h2>
+                    <p class="text-lg text-gray-600 max-w-3xl mx-auto">
+                        Don't worry about complex financial jargon. Our AI will analyze your profile and create a personalized investment strategy just for you. 
+                        We'll explain everything in simple terms and guide you through your investment journey.
+                    </p>
                 </div>
-                <button id="run-eval-btn" class="mt-4 md:mt-0 bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-300">
-                    <span id="btn-text">Run New Evaluation</span>
-                    <span id="btn-spinner" class="hidden animate-spin">&#9696;</span>
-                </button>
             </div>
 
-            <div id="report-selector" class="mb-6">
-                <label for="reports" class="block text-sm font-medium text-gray-700 mb-2">Available Reports:</label>
-                <select id="reports" name="reports" class="block w-full p-3 border border-gray-300 rounded-lg bg-gray-50 focus:ring-indigo-500 focus:border-indigo-500">
-                    {% if reports %}
-                        {% for report in reports %}
-                            <option value="{{ report }}">{{ report.replace('_llm_report.txt', '') }}</option>
-                        {% endfor %}
-                    {% else %}
-                        <option disabled selected>No reports found. Run an evaluation.</option>
-                    {% endif %}
-                </select>
-            </div>
-
-            <div id="report-content" class="mt-8 border-t border-gray-200 pt-8 hidden">
-                <h3 id="report-title" class="text-3xl font-bold mb-6 text-gray-900"></h3>
+            <!-- Profile Form -->
+            <div class="bg-white rounded-2xl shadow-lg p-8 mb-8 card-hover">
+                <h3 class="text-2xl font-bold text-gray-900 mb-6">📋 Tell Us About Yourself</h3>
                 
-                <div class="prose max-w-none report-text bg-gray-100 p-6 rounded-lg">
-                    <!-- LLM Report Text will be injected here -->
+                <form id="profile-form" class="space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Age -->
+                        <div>
+                            <label for="age" class="block text-sm font-medium text-gray-700 mb-2">
+                                Your Age <span class="text-red-500">*</span>
+                            </label>
+                            <input type="number" id="age" name="age" min="18" max="100" required
+                                   class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   placeholder="e.g., 25">
+                            <p class="text-sm text-gray-500 mt-1">This helps us understand your investment timeline</p>
+                        </div>
+
+                        <!-- Investment Amount -->
+                        <div>
+                            <label for="investment_amount" class="block text-sm font-medium text-gray-700 mb-2">
+                                How much would you like to invest? <span class="text-red-500">*</span>
+                            </label>
+                            <div class="relative">
+                                <span class="absolute left-3 top-3 text-gray-500">$</span>
+                                <input type="number" id="investment_amount" name="investment_amount" min="100" step="100" required
+                                       class="w-full p-3 pl-8 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                       placeholder="e.g., 10000">
+                            </div>
+                            <p class="text-sm text-gray-500 mt-1">Start with what you're comfortable with</p>
+                        </div>
+                    </div>
+
+                    <!-- Time Horizon -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-3">
+                            What's your investment timeline? <span class="text-red-500">*</span>
+                        </label>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <label class="flex items-center p-4 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                                <input type="radio" name="time_horizon" value="short_term" class="mr-3">
+                                <div>
+                                    <div class="font-medium">Short-Term (1-3 years)</div>
+                                    <div class="text-sm text-gray-500">For active trading and quick gains</div>
+                                </div>
+                            </label>
+                            <label class="flex items-center p-4 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                                <input type="radio" name="time_horizon" value="long_term" class="mr-3" checked>
+                                <div>
+                                    <div class="font-medium">Long-Term (5+ years)</div>
+                                    <div class="text-sm text-gray-500">For building wealth over time</div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Risk Tolerance -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-3">
+                            How do you feel about investment risk?
+                        </label>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <label class="flex items-center p-4 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                                <input type="radio" name="risk_tolerance" value="conservative" class="mr-3">
+                                <div>
+                                    <div class="font-medium">Conservative</div>
+                                    <div class="text-sm text-gray-500">Prefer stability over growth</div>
+                                </div>
+                            </label>
+                            <label class="flex items-center p-4 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                                <input type="radio" name="risk_tolerance" value="moderate" class="mr-3" checked>
+                                <div>
+                                    <div class="font-medium">Moderate</div>
+                                    <div class="text-sm text-gray-500">Balance of growth and stability</div>
+                                </div>
+                            </label>
+                            <label class="flex items-center p-4 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                                <input type="radio" name="risk_tolerance" value="aggressive" class="mr-3">
+                                <div>
+                                    <div class="font-medium">Aggressive</div>
+                                    <div class="text-sm text-gray-500">Maximum growth potential</div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <button type="submit" id="analyze-btn" 
+                            class="w-full bg-blue-600 text-white font-semibold py-4 px-6 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-300">
+                        <span id="btn-text">🚀 Get My Personalized Investment Plan</span>
+                        <span id="btn-spinner" class="hidden loading-spinner ml-2">⏳</span>
+                    </button>
+                </form>
+            </div>
+
+            <!-- Results Section -->
+            <div id="results-section" class="hidden space-y-8">
+                
+                <!-- Strategy Overview -->
+                <div id="strategy-overview" class="bg-white rounded-2xl shadow-lg p-8 card-hover">
+                    <h3 class="text-2xl font-bold text-gray-900 mb-6">📊 Your Investment Strategy</h3>
+                    <div id="strategy-content" class="space-y-4">
+                        <!-- Strategy info will be populated here -->
+                    </div>
                 </div>
 
-                <div class="mt-12 grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    <div id="plot-performance-container" class="bg-white p-4 rounded-xl shadow-md border"></div>
-                    <div id="plot-weights-container" class="bg-white p-4 rounded-xl shadow-md border"></div>
-                    <div id="plot-distribution-container" class="bg-white p-4 rounded-xl shadow-md border lg:col-span-2"></div>
+                <!-- Age-Based Advice -->
+                <div id="age-advice" class="bg-gradient-to-r from-green-50 to-blue-50 rounded-2xl shadow-lg p-8 card-hover">
+                    <h3 class="text-2xl font-bold text-gray-900 mb-6">🎯 Age-Specific Guidance</h3>
+                    <div id="age-advice-content" class="space-y-4">
+                        <!-- Age advice will be populated here -->
+                    </div>
+                </div>
+
+                <!-- Portfolio Recommendation -->
+                <div id="portfolio-recommendation" class="bg-white rounded-2xl shadow-lg p-8 card-hover">
+                    <h3 class="text-2xl font-bold text-gray-900 mb-6">💼 Your Recommended Portfolio</h3>
+                    <div id="portfolio-content" class="space-y-6">
+                        <!-- Portfolio details will be populated here -->
+                    </div>
+                </div>
+
+                <!-- AI Analysis -->
+                <div id="ai-analysis" class="bg-gradient-to-r from-purple-50 to-pink-50 rounded-2xl shadow-lg p-8 card-hover">
+                    <h3 class="text-2xl font-bold text-gray-900 mb-6">🤖 AI Investment Analysis</h3>
+                    <div id="ai-content" class="prose max-w-none">
+                        <!-- AI report will be populated here -->
+                    </div>
+                </div>
+
+                <!-- Next Steps -->
+                <div class="bg-blue-50 rounded-2xl shadow-lg p-8 card-hover">
+                    <h3 class="text-2xl font-bold text-gray-900 mb-6">📝 Next Steps</h3>
+                    <div class="space-y-4">
+                        <div class="flex items-start space-x-3">
+                            <div class="bg-blue-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold">1</div>
+                            <div>
+                                <h4 class="font-semibold">Review Your Plan</h4>
+                                <p class="text-gray-600">Take time to understand your recommended portfolio allocation</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start space-x-3">
+                            <div class="bg-blue-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold">2</div>
+                            <div>
+                                <h4 class="font-semibold">Open a Brokerage Account</h4>
+                                <p class="text-gray-600">Consider popular platforms like Robinhood, Fidelity, or Vanguard</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start space-x-3">
+                            <div class="bg-blue-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold">3</div>
+                            <div>
+                                <h4 class="font-semibold">Start Investing</h4>
+                                <p class="text-gray-600">Begin with your recommended allocation and monitor regularly</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start space-x-3">
+                            <div class="bg-blue-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold">4</div>
+                            <div>
+                                <h4 class="font-semibold">Stay Informed</h4>
+                                <p class="text-gray-600">Continue learning about investing and market trends</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
-             <div id="no-report-message" class="text-center py-12">
-                <p class="text-gray-500">Select a report or run a new evaluation to view results.</p>
+
+            <!-- Error Section -->
+            <div id="error-section" class="hidden bg-red-50 border border-red-200 rounded-2xl p-8">
+                <div class="flex items-center space-x-3">
+                    <div class="text-red-600 text-2xl">⚠️</div>
+                    <div>
+                        <h3 class="text-xl font-bold text-red-800">Oops! Something went wrong</h3>
+                        <p id="error-message" class="text-red-600 mt-2"></p>
+                    </div>
+                </div>
+                <button onclick="location.reload()" class="mt-4 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700">
+                    Try Again
+                </button>
             </div>
         </div>
     </div>
 
     <script>
-        const reportSelector = document.getElementById('reports');
-        const runEvalBtn = document.getElementById('run-eval-btn');
-        const reportContent = document.getElementById('report-content');
-        const reportTitle = document.getElementById('report-title');
-        const reportTextContainer = document.querySelector('.report-text');
-        const noReportMessage = document.getElementById('no-report-message');
-        
-        const plotContainers = {
-            performance: document.getElementById('plot-performance-container'),
-            weights: document.getElementById('plot-weights-container'),
-            distribution: document.getElementById('plot-distribution-container')
-        };
+        const profileForm = document.getElementById('profile-form');
+        const analyzeBtn = document.getElementById('analyze-btn');
+        const btnText = document.getElementById('btn-text');
+        const btnSpinner = document.getElementById('btn-spinner');
+        const resultsSection = document.getElementById('results-section');
+        const errorSection = document.getElementById('error-section');
+        const errorMessage = document.getElementById('error-message');
 
-        async function fetchAndDisplayReport(reportName) {
-            // FIX: This guard clause now robustly checks if the selected value is a valid report file.
-            // The placeholder text "No reports found..." will not end with "_llm_report.txt" and will be caught here.
-            if (!reportName || !reportName.endsWith('_llm_report.txt')) {
-                reportContent.classList.add('hidden');
-                noReportMessage.classList.remove('hidden');
-                return;
-            }
+        // Form submission handler
+        profileForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            // Show loading state
+            analyzeBtn.disabled = true;
+            btnText.textContent = 'Analyzing your profile...';
+            btnSpinner.classList.remove('hidden');
+            
+            // Hide previous results/errors
+            resultsSection.classList.add('hidden');
+            errorSection.classList.add('hidden');
             
             try {
-                const response = await fetch(`/get_report/${reportName}`);
-                const data = await response.json();
-
-                if (data.error) {
-                    throw new Error(data.error);
-                }
+                // Collect form data
+                const formData = new FormData(profileForm);
+                const data = {
+                    age: parseInt(formData.get('age')),
+                    investment_amount: parseFloat(formData.get('investment_amount')),
+                    time_horizon: formData.get('time_horizon'),
+                    risk_tolerance: formData.get('risk_tolerance')
+                };
                 
-                reportTitle.textContent = data.report_title;
-                reportTextContainer.textContent = data.report_text;
-
-                // Clear old plots
-                Object.values(plotContainers).forEach(c => c.innerHTML = '');
-
-                // Display new plots
-                for (const [key, path] of Object.entries(data.plots)) {
-                    if (path && plotContainers[key]) {
-                        plotContainers[key].innerHTML = `<img src="${path}" alt="${key} plot" class="w-full h-auto rounded-lg shadow-sm">`;
-                    }
-                }
-
-                reportContent.classList.remove('hidden');
-                noReportMessage.classList.add('hidden');
-
-            } catch (error) {
-                console.error('Failed to fetch report:', error);
-                alert('Error loading report. See console for details.');
-            }
-        }
-        
-        reportSelector.addEventListener('change', () => {
-            fetchAndDisplayReport(reportSelector.value);
-        });
-
-        runEvalBtn.addEventListener('click', async () => {
-            const btnText = document.getElementById('btn-text');
-            const spinner = document.getElementById('btn-spinner');
-
-            runEvalBtn.disabled = true;
-            btnText.textContent = 'Running...';
-            spinner.classList.remove('hidden');
-
-            try {
-                const response = await fetch('/run_evaluation');
+                // Send request to backend
+                const response = await fetch('/api/analyze_portfolio', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+                
                 const result = await response.json();
                 
                 if (response.ok) {
-                    alert(result.message);
-                    window.location.reload(); // Reload the page to see the new report in the list
+                    displayResults(result);
                 } else {
-                    throw new Error(result.message || 'Unknown error occurred.');
+                    throw new Error(result.error || 'Analysis failed');
                 }
-
+                
             } catch (error) {
-                console.error('Evaluation run failed:', error);
-                alert(`Evaluation failed: ${error.message}`);
+                console.error('Analysis failed:', error);
+                showError(error.message);
             } finally {
-                runEvalBtn.disabled = false;
-                btnText.textContent = 'Run New Evaluation';
-                spinner.classList.add('hidden');
+                // Reset button state
+                analyzeBtn.disabled = false;
+                btnText.textContent = '🚀 Get My Personalized Investment Plan';
+                btnSpinner.classList.add('hidden');
             }
         });
 
-        // FIX: The initial call is now simpler. It passes the current value of the selector,
-        // and the robust guard clause inside the function handles the logic correctly.
-        fetchAndDisplayReport(reportSelector.value);
+        function displayResults(data) {
+            // Display strategy overview
+            const strategyContent = document.getElementById('strategy-content');
+            strategyContent.innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="bg-blue-50 p-4 rounded-lg">
+                        <h4 class="font-semibold text-blue-900">Strategy Type</h4>
+                        <p class="text-blue-700">${data.strategy.description}</p>
+                    </div>
+                    <div class="bg-green-50 p-4 rounded-lg">
+                        <h4 class="font-semibold text-green-900">Risk Level</h4>
+                        <p class="text-green-700">${data.strategy.risk_level}</p>
+                    </div>
+                    <div class="bg-yellow-50 p-4 rounded-lg">
+                        <h4 class="font-semibold text-yellow-900">Expected Volatility</h4>
+                        <p class="text-yellow-700">${data.strategy.expected_volatility}</p>
+                    </div>
+                    <div class="bg-purple-50 p-4 rounded-lg">
+                        <h4 class="font-semibold text-purple-900">Monitoring Frequency</h4>
+                        <p class="text-purple-700">${data.strategy.recommended_frequency}</p>
+                    </div>
+                </div>
+            `;
 
+            // Display age-based advice
+            const ageAdviceContent = document.getElementById('age-advice-content');
+            ageAdviceContent.innerHTML = `
+                <div class="bg-white p-6 rounded-lg shadow-sm">
+                    <div class="flex items-start space-x-4">
+                        <div class="text-3xl">🎯</div>
+                        <div>
+                            <h4 class="font-semibold text-lg mb-2">${data.age_advice.focus}</h4>
+                            <p class="text-gray-700 mb-3">${data.age_advice.advice}</p>
+                            <div class="bg-gray-100 p-3 rounded">
+                                <span class="font-medium">Risk Capacity:</span> ${data.age_advice.risk_capacity}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Display portfolio recommendation
+            const portfolioContent = document.getElementById('portfolio-content');
+            const weights = data.portfolio.recommended_weights;
+            const amounts = data.portfolio.allocation_amounts;
+            
+            let portfolioHTML = `
+                <div class="bg-gray-50 p-6 rounded-lg mb-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h4 class="font-semibold text-lg">Total Investment: $${data.portfolio.total_investment.toLocaleString()}</h4>
+                        <div class="text-sm text-gray-600">
+                            Analyzed ${data.portfolio.total_stocks_analyzed} stocks, showing top ${data.portfolio.recommendations_shown}
+                        </div>
+                    </div>
+                    
+                    <!-- Sector Breakdown -->
+                    ${data.portfolio.sector_breakdown ? `
+                    <div class="mb-6">
+                        <h5 class="font-medium text-gray-700 mb-3">Sector Diversification:</h5>
+                        <div class="flex flex-wrap gap-2">
+                            ${Object.entries(data.portfolio.sector_breakdown).map(([sector, count]) => 
+                                `<span class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">${sector}: ${count}</span>`
+                            ).join('')}
+                        </div>
+                    </div>
+                    ` : ''}
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            `;
+            
+            Object.entries(weights).forEach(([ticker, weight]) => {
+                const amount = amounts[ticker];
+                const percentage = (weight * 100).toFixed(1);
+                portfolioHTML += `
+                    <div class="bg-white p-4 rounded-lg border hover:shadow-md transition-shadow">
+                        <div class="flex justify-between items-center mb-2">
+                            <span class="font-semibold text-lg">${ticker}</span>
+                            <span class="text-blue-600 font-medium">${percentage}%</span>
+                        </div>
+                        <div class="text-gray-600 mb-2">$${amount.toLocaleString()}</div>
+                        <div class="w-full bg-gray-200 rounded-full h-2 mb-2">
+                            <div class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: ${percentage}%"></div>
+                        </div>
+                        <div class="text-xs text-gray-500">
+                            ${getSectorForTicker(ticker, data.portfolio.sector_breakdown)}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            portfolioHTML += `
+                    </div>
+                </div>
+                <div class="bg-blue-50 p-4 rounded-lg">
+                    <p class="text-blue-800"><strong>Benchmark:</strong> ${data.portfolio.benchmark} - This is what we compare your performance against.</p>
+                    <p class="text-blue-700 text-sm mt-2">💡 <strong>Tip:</strong> We've selected the top ${data.portfolio.recommendations_shown} stocks from our analysis of ${data.portfolio.total_stocks_analyzed} stocks to give you the best opportunities while maintaining diversification.</p>
+                </div>
+            `;
+            
+            portfolioContent.innerHTML = portfolioHTML;
+
+            // Display AI analysis
+            const aiContent = document.getElementById('ai-content');
+            aiContent.innerHTML = `
+                <div class="bg-white p-6 rounded-lg shadow-sm">
+                    <div class="prose max-w-none">
+                        ${data.llm_report.replace(/\n/g, '<br>')}
+                    </div>
+                </div>
+            `;
+
+            // Show results
+            resultsSection.classList.remove('hidden');
+            
+            // Smooth scroll to results
+            resultsSection.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function getSectorForTicker(ticker, sectorBreakdown) {
+            if (!sectorBreakdown) return '';
+            
+            for (const [sector, tickers] of Object.entries(sectorBreakdown)) {
+                if (tickers && tickers.includes && tickers.includes(ticker)) {
+                    return sector;
+                }
+            }
+            return 'Other';
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorSection.classList.remove('hidden');
+            errorSection.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Add some helpful tooltips and validation
+        document.getElementById('age').addEventListener('input', function() {
+            const age = parseInt(this.value);
+            if (age < 18) {
+                this.setCustomValidity('You must be at least 18 to invest');
+            } else {
+                this.setCustomValidity('');
+            }
+        });
+
+        document.getElementById('investment_amount').addEventListener('input', function() {
+            const amount = parseFloat(this.value);
+            if (amount < 100) {
+                this.setCustomValidity('Minimum investment is $100');
+            } else {
+                this.setCustomValidity('');
+            }
+        });
     </script>
 </body>
 </html>
