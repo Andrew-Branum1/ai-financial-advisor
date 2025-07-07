@@ -99,40 +99,70 @@ This demo shows:
 - **Risk Analysis**: Value at Risk, win rate, profit factor
 - **LLM-Powered Reports**: AI-generated investment insights
 
+## 🚀 New Pipeline Highlights (2025)
+
+- **20-Ticker Universe:** All models are now trained and validated on a diverse set of 20 tickers spanning multiple sectors and geographies.
+- **Top-5 Selection Logic:** At each step, the RL agent can only allocate to its 5 best tickers (by predicted weight); all other weights are set to zero and the top 5 are re-normalized. This is enforced in the environment logic.
+- **Consistent Training & Validation:** All scripts reference the same universe, ensuring robust and fair evaluation.
+
+### Why Top-5 Selection?
+
+- Improves interpretability for users and stakeholders.
+- Reduces overfitting by forcing the model to focus on its best ideas.
+- Mimics real-world portfolio construction constraints.
+
 ## 📁 Project Structure
 
 ```
 ai-financial-advisor/
 ├── app.py                          # Main web application (First-time investor interface)
-├── demo_first_time_investor.py     # Interactive demo for new users
+├── app_extended_universe.py        # Web app for expanded universe features
+├── train_all_models.py             # Comprehensive training script for all RL models
 ├── config.py                       # Main configuration
 ├── config_short_term.py            # Short-term strategy config
 ├── config_long_term.py             # Long-term strategy config
+├── config_extended_universe.py     # Extended universe config
 ├── requirements.txt                # Python dependencies
 ├── README.md                       # This file
+├── PROJECT_FLOW.md                 # Project flow and architecture
 │
 ├── rl/                            # Reinforcement Learning
 │   ├── portfolio_env_short_term.py # Short-term trading environment
 │   ├── portfolio_env_long_term.py  # Long-term growth environment
 │   ├── attention_policy.py         # Attention-based policy network
-│   ├── custom_ppo.py              # Custom PPO implementation
-│   ├── train_short_term.py        # Short-term model training
-│   ├── train_long_term.py         # Long-term model training
-│   └── evaluate_enhanced.py       # Enhanced evaluation script
+│   ├── custom_ppo.py               # Custom PPO implementation
+│   ├── train_short_term_final.py   # Short-term model training (final)
+│   ├── train_long_term_final.py    # Long-term model training (final)
+│   ├── optimize_short_term.py      # Hyperparameter optimization (short-term)
+│   ├── optimize_long_term.py       # Hyperparameter optimization (long-term)
+│   ├── evaluate_enhanced.py        # Enhanced evaluation script
+│   └── universal_portfolio_env.py  # Env for large/variable universes
 │
-├── src/                           # Core utilities
-│   ├── data_collector.py          # Market data collection
+├── src/                           # Core utilities and data collection
+│   ├── data_collector_enhanced.py # Enhanced data collection
+│   ├── data_collector_extended.py # Extended universe data collection
 │   └── utils.py                   # Utility functions
 │
 ├── llm/                           # Language Model Integration
 │   └── advisor.py                 # AI-powered investment reports
 │
+├── eval/                          # Evaluation and validation scripts
+│   ├── validate_model.py          # Model validation and performance metrics
+│   ├── eval_holdout_backtest.py   # Holdout backtest evaluation
+│   └── eval_rolling_backtest.py   # Rolling window backtest
+│
 ├── templates/                     # Web interface templates
 │   └── index.html                 # First-time investor interface
+│   └── index_extended.html        # Extended universe interface
 │
 ├── data/                          # Market data storage
 ├── models/                        # Trained model files
-└── plots/                         # Performance plots and charts
+├── logs/                          # Log files
+├── optimization_results/          # Hyperparameter optimization results
+├── tests/                         # Unit and integration tests
+├── plots/                         # Performance plots and charts
+├── archived/                      # Old/unused scripts and docs
+└── .gitignore, Dockerfile, ...    # Miscellaneous files
 ```
 
 ## 🛠️ Installation
@@ -163,28 +193,27 @@ ai-financial-advisor/
 
 ```bash
 # Collect market data for all configured tickers
-python -m src.data_collector
+python -m src.data_collector_enhanced
 ```
 
 #### 2. Train Models
 
-**Short-term Strategy:**
-
 ```bash
-python -m rl.train_short_term
-```
-
-**Long-term Strategy:**
-
-```bash
-python -m rl.train_long_term
+python train_all_models.py
 ```
 
 #### 3. Evaluate Performance
 
 ```bash
-# Evaluate both strategies
-python -m rl.evaluate_enhanced
+python eval/validate_model.py
+```
+
+#### 4. Run the Web App
+
+```bash
+python app.py
+# or for expanded universe features
+python app_extended_universe.py
 ```
 
 ## 📊 Strategy Overview

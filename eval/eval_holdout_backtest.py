@@ -10,7 +10,6 @@ import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from datetime import datetime
 import logging
 import json
 import csv
@@ -28,7 +27,9 @@ except ImportError:
     print("Stable Baselines3 (PPO) not found. Please ensure it's installed.")
     PPO = None
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 # --- Parameters ---
@@ -36,6 +37,7 @@ HOLDOUT_START = "2023-01-01"
 HOLDOUT_END = "2024-12-31"
 INITIAL_BALANCE = 100000
 TRANSACTION_COST = 0.001
+
 
 # --- Helper Functions ---
 def get_latest_model(strategy="short_term"):
@@ -55,6 +57,7 @@ def get_latest_model(strategy="short_term"):
     logger.error(f"No model files found in {model_dir}")
     return None
 
+
 def get_equal_weight_returns(df, tickers):
     close_cols = [f"{ticker}_close" for ticker in tickers]
     prices = df[close_cols]
@@ -62,6 +65,7 @@ def get_equal_weight_returns(df, tickers):
     ew_returns = returns.mean(axis=1)
     ew_cum = (1 + ew_returns).cumprod()
     return ew_cum, ew_returns
+
 
 def get_spy_returns(df):
     spy_col = "SPY_close"
@@ -73,22 +77,28 @@ def get_spy_returns(df):
     cum = (1 + returns).cumprod()
     return cum, returns
 
+
 def compute_metrics(cum_returns, returns):
     total_return = cum_returns.iloc[-1] - 1
-    ann_return = cum_returns.iloc[-1] ** (252/len(cum_returns)) - 1
+    ann_return = cum_returns.iloc[-1] ** (252 / len(cum_returns)) - 1
     volatility = returns.std() * np.sqrt(252)
-    sharpe = (returns.mean() * 252) / (returns.std() * np.sqrt(252)) if returns.std() > 0 else 0
+    sharpe = (
+        (returns.mean() * 252) / (returns.std() * np.sqrt(252))
+        if returns.std() > 0
+        else 0
+    )
     drawdown = (cum_returns / cum_returns.cummax() - 1).min()
     return {
         "Total Return": f"{total_return*100:.2f}%",
         "Annualized Return": f"{ann_return*100:.2f}%",
         "Volatility": f"{volatility*100:.2f}%",
         "Sharpe Ratio": f"{sharpe:.2f}",
-        "Max Drawdown": f"{drawdown*100:.2f}%"
+        "Max Drawdown": f"{drawdown*100:.2f}%",
     }
 
+
 def plot_results(dates, model_cum, spy_cum, ew_cum):
-    plt.figure(figsize=(12,6))
+    plt.figure(figsize=(12, 6))
     plt.plot(dates, model_cum, label="RL Model Portfolio")
     if spy_cum is not None:
         plt.plot(dates, spy_cum, label="SPY (S&P 500)")
@@ -101,6 +111,7 @@ def plot_results(dates, model_cum, spy_cum, ew_cum):
     plt.tight_layout()
     plt.show()
 
+
 def main():
     logger.info("Loading holdout data for 2023-2024...")
     all_tickers = sorted(list(set(AGENT_TICKERS + [BENCHMARK_TICKER])))
@@ -108,7 +119,7 @@ def main():
         tickers_list=all_tickers,
         start_date=HOLDOUT_START,
         end_date=HOLDOUT_END,
-        min_data_points=252
+        min_data_points=252,
     )
     if df is None or df.empty:
         logger.error("No data loaded for holdout period!")
@@ -128,9 +139,13 @@ def main():
     with open(os.path.join(model_dir, "training_config.json")) as f:
         training_config = json.load(f)
     window_size = training_config["env_params"]["window_size"]
-    features_to_use = training_config.get("ppo_params", {}).get("features_to_use", FEATURES_TO_USE_IN_MODEL)
+    features_to_use = training_config.get("ppo_params", {}).get(
+        "features_to_use", FEATURES_TO_USE_IN_MODEL
+    )
     if not features_to_use:
-        features_to_use = training_config.get("features_to_use", FEATURES_TO_USE_IN_MODEL)
+        features_to_use = training_config.get(
+            "features_to_use", FEATURES_TO_USE_IN_MODEL
+        )
 
     # Prepare environment with correct features and window size
     feature_columns = []
@@ -144,7 +159,7 @@ def main():
         feature_columns_ordered=features_to_use,
         initial_balance=INITIAL_BALANCE,
         transaction_cost_pct=TRANSACTION_COST,
-        window_size=window_size
+        window_size=window_size,
     )
     obs, _ = env.reset()
     model_portfolio_values = [env.portfolio_value]
@@ -152,7 +167,7 @@ def main():
     while not done:
         action, _ = model.predict(obs, deterministic=True)
         obs, reward, terminated, truncated, info = env.step(action)
-        model_portfolio_values.append(info['portfolio_value'])
+        model_portfolio_values.append(info["portfolio_value"])
         done = terminated or truncated
 
     # --- Equal-Weighted Portfolio ---
@@ -198,5 +213,6 @@ def main():
     # --- Plot ---
     plot_results(plot_dates, model_cum, spy_cum, ew_cum)
 
+
 if __name__ == "__main__":
-    main() 
+    main()

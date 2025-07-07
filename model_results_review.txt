@@ -1,0 +1,86 @@
+AI Financial Advisor Model Results Review
+========================================
+
+This document summarizes and interprets the rolling backtest results for all six RL-based financial advisor models:
+- Short-Term: Conservative, Moderate, Aggressive
+- Long-Term: Conservative, Moderate, Aggressive
+
+---
+
+## Short-Term Models
+
+### Conservative
+- **Returns:** 2% to 40% (test windows)
+- **Drawdown:** -33% to -6%
+- **Sharpe:** 0.2 to 2.47
+- **Suitability:** Fails in high-drawdown years, passes in others
+- **Stress tests:** Slight loss in COVID, small gain in 2022 bear
+- **Interpretation:** Performance is variable but not suspiciously high. Stress tests are realistic. No signs of overfitting.
+
+### Moderate
+- **Returns:** -20% to 43%
+- **Drawdown:** -26% to -7%
+- **Sharpe:** -0.73 to 2.64
+- **Suitability:** Fails in high-drawdown/negative years, passes in others
+- **Stress tests:** Small gain/loss, suitability fails in stress
+- **Interpretation:** Some negative years, not consistently high, stress tests are not "cheated." No signs of overfitting.
+
+### Aggressive
+- **Returns:** -10% to 39%
+- **Drawdown:** -29% to -5%
+- **Sharpe:** -0.33 to 2.62
+- **Suitability:** Fails in high-drawdown/negative years, passes in others
+- **Stress tests:** Small gain/loss, suitability fails in stress
+- **Interpretation:** Similar to above, not suspiciously high, stress tests are realistic. No signs of overfitting.
+
+---
+
+## Long-Term Models
+
+### Conservative
+- **Returns:** -9% to 60%
+- **Drawdown:** -28% to -5%
+- **Sharpe:** -0.26 to 2.90
+- **Suitability:** Fails in high-drawdown/negative years, passes in others
+- **Stress tests:** Small loss in COVID, small loss in 2022 bear
+- **Interpretation:** Some negative years, stress tests are not "cheated." No signs of overfitting.
+
+### Moderate
+- **Returns:** 0.9% to 52%
+- **Drawdown:** -34% to -4%
+- **Sharpe:** 0.15 to 2.87
+- **Suitability:** Fails in high-drawdown/negative years, passes in others
+- **Stress tests:** Small gain/loss, suitability fails in stress
+- **Interpretation:** Not consistently high, stress tests are realistic. No signs of overfitting.
+
+### Aggressive
+- **Returns:** -0.9% to 39%
+- **Drawdown:** -43% to -7%
+- **Sharpe:** 0.21 to 2.11
+- **Suitability:** Fails in high-drawdown/negative years, passes in others
+- **Stress tests:** Small loss/gain, suitability fails in stress
+- **Interpretation:** Negative years, high drawdown, stress tests are not "cheated." No signs of overfitting.
+
+---
+
+## General Observations
+- No model is "too good to be true." All have negative or low returns in some years, and stress test results are realistic.
+- Sharpe ratios are not consistently high (some < 1, some > 2 in good years).
+- Drawdowns are significant in bad years, which is realistic.
+- Suitability checks are failing in high-risk years and stress periods, which is what you want for honest validation.
+
+---
+
+## Recommendations
+- **No models show signs of overfitting.**
+- For conservative investors, the long-term conservative or moderate models are recommended due to lower drawdowns and more consistent suitability.
+- For aggressive or speculative goals, the aggressive models offer higher upside but come with much higher risk and frequent suitability failures.
+- Always consider suitability flags and stress test results before deploying a model for real users.
+
+---
+
+## Next Steps
+- Select models based on your risk/return preferences and suitability.
+- Fix Gemini API event loop error if you want natural language explanations in your results.
+- Consider automating retraining and monitoring for production use.
+- Document and share these findings with stakeholders or in your final report. 
