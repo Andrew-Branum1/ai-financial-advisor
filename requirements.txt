@@ -10,7 +10,7 @@ sqlalchemy
 transformers
 ta
 tensorboard
-
+pandas_ta
 seaborn
 flask
 requests

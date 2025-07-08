@@ -1,130 +1,70 @@
 # config.py
-"""
-Central configuration file for the AI Financial Advisor project.
-This file serves as the single source of truth for all shared settings,
-ensuring consistency across data collection, training, and evaluation scripts.
 
-Enhanced for better short and long term prediction capabilities.
+# ==============================================================================
+# 1. GLOBAL CONFIGURATION
+# ==============================================================================
 
-"""
-
-# --- Data Configuration ---
-# Define the universe of tickers the agent will be trained on.
-# This list is now the single source of truth.
-# In both config.py and config_aggressive.py
-
-AGENT_TICKERS = [
-
-    "AAPL",  # US Tech
-    "MSFT",  # US Tech
-    "GOOGL", # US Tech
-    "NVDA",  # US Tech
-    "META",  # US Tech
-    "JNJ",   # US Healthcare
-    "PFE",   # US Healthcare
-    "LLY",   # US Healthcare
-    "UNH",   # US Healthcare
-    "MRK",   # US Healthcare
-    "JPM",   # US Financials
-    "BAC",   # US Financials
-    "V",     # US Financials
-    "XOM",   # US Energy
-    "CVX",   # US Energy
-    "AMZN",  # US Consumer
-    "WMT",   # US Consumer
-    "BABA",  # China
-    "TM",    # Japan
-    "SAP",   # Europe
-]
-
-# Define the ticker to be used for the buy-and-hold benchmark.
+# Benchmark for all strategies
 BENCHMARK_TICKER = "SPY"
 
-# Define all features to be calculated and stored in the database.
-# This ensures that all necessary data is available for experiments.
-# Enhanced with additional features for better prediction
+# Full list of tickers available for analysis
+# We can define different subsets for different risk profiles
+STABLE_TICKERS = ["AAPL", "MSFT", "JNJ", "PFE", "UNH", "WMT", "JPM", "V", "SPY"]
+MODERATE_TICKERS = STABLE_TICKERS + ["GOOGL", "AMZN", "COST", "CRM", "XOM"]
+AGGRESSIVE_TICKERS = MODERATE_TICKERS + ["NVDA", "TSLA", "META", "ADBE"]
+
+# A comprehensive list of features that can be calculated.
+# Each strategy will select a subset of these.
 FEATURES_TO_CALCULATE = [
-    "close",
-    "rsi",
-    "volatility_20",
-    "bollinger_hband",
-    "bollinger_lband",
-    "bollinger_mavg",
-    "atr",
-    "sma_10",
-    "sma_50",
-    "macd",
-    "macd_signal",
-    "daily_return",
-    "volatility_5",
-    "momentum_10",
-    "avg_volume_10",
-    "close_vs_sma_50",
-    "bollinger_width",
-    "obv",
-    "mfi",
-    "close_vs_sma_10",
-    # Additional features for enhanced prediction
-    "ema_12",
-    "ema_26",
-    "stoch_k",
-    "stoch_d",
-    "williams_r",
-    "cci",
-    "adx",
-    "volume_sma_ratio",
-    "price_momentum_5",
-    "volatility_ratio",
-    "trend_strength",
+    'close', 'volume', 'daily_return', 'close_vs_sma_10', 'close_vs_sma_20',
+    'close_vs_sma_50', 'volatility_5', 'volatility_10', 'volatility_20',
+    'momentum_10', 'momentum_20', 'rsi', 'macd', 'macd_signal', 'macd_histogram',
+    'bollinger_width', 'bollinger_position', 'obv', 'atr', 'stoch_k', 'stoch_d', 'mfi'
 ]
 
-# Define the specific subset of features the model will use for its observation space.
-# Enhanced feature set for better prediction accuracy
-FEATURES_TO_USE_IN_MODEL = [
-    "close",
-    "close_vs_sma_50",
-    "mfi",
-    "bollinger_width",
-    "obv",
-    "atr",
-    "rsi",
-    "macd",
-    "volatility_20",
-    "momentum_10",
-    "daily_return",
-    "volume_sma_ratio",
-    "trend_strength",
-]
+# ==============================================================================
+# 2. STRATEGY-SPECIFIC CONFIGURATIONS (Term and Risk)
+# ==============================================================================
 
-# Best hyperparameters for the 5-stock portfolio.
-# Optimized for long-term growth with risk management
-BEST_PPO_PARAMS = {
-    "learning_rate": 2.0221608802590983e-05,
-    "n_epochs": 12,
-    "gae_lambda": 0.9271494454220346,
-    "ent_coef": 0.08684848168594887,
-    "vf_coef": 0.46612025760783965,
-    "gamma": 0.9946448619546133,
-    "clip_range": 0.2720116965455601,
-    "n_steps": 1024,
+STRATEGY_CONFIGS = {
+    "short_term": {
+        "conservative": {
+            "tickers": STABLE_TICKERS,
+            "features_to_use": ["close", "daily_return", "close_vs_sma_20", "volatility_10", "rsi", "bollinger_position"],
+            "env_params": {"window_size": 20, "volatility_target": 0.10, "turnover_penalty_weight": 0.01},
+            "ppo_params": {"learning_rate": 5e-4, "n_steps": 256, "batch_size": 64, "n_epochs": 10, "gamma": 0.98}
+        },
+        "moderate": {
+            "tickers": MODERATE_TICKERS,
+            "features_to_use": ["close", "daily_return", "close_vs_sma_20", "volatility_10", "momentum_10", "rsi", "macd_histogram", "bollinger_position"],
+            "env_params": {"window_size": 30, "volatility_target": 0.15, "turnover_penalty_weight": 0.005},
+            "ppo_params": {"learning_rate": 3e-4, "n_steps": 512, "batch_size": 64, "n_epochs": 10, "gamma": 0.99}
+        },
+        "aggressive": {
+            "tickers": AGGRESSIVE_TICKERS,
+            "features_to_use": ["close", "volume", "daily_return", "close_vs_sma_10", "volatility_5", "momentum_10", "mfi", "atr"],
+            "env_params": {"window_size": 30, "volatility_target": 0.20, "turnover_penalty_weight": 0.002},
+            "ppo_params": {"learning_rate": 1e-4, "n_steps": 512, "batch_size": 32, "n_epochs": 15, "gamma": 0.99}
+        }
+    },
+    "long_term": {
+        "conservative": {
+            "tickers": STABLE_TICKERS,
+            "features_to_use": ["close", "daily_return", "close_vs_sma_50", "volatility_20", "rsi", "obv"],
+            "env_params": {"window_size": 80, "rebalancing_frequency": 20, "volatility_target": 0.08, "turnover_penalty_weight": 0.02},
+            "ppo_params": {"learning_rate": 3e-4, "n_steps": 1024, "batch_size": 128, "n_epochs": 10, "gamma": 0.995}
+        },
+        "moderate": {
+            "tickers": MODERATE_TICKERS,
+            "features_to_use": ["close", "daily_return", "close_vs_sma_50", "volatility_20", "momentum_20", "rsi", "macd", "obv"],
+            "env_params": {"window_size": 60, "rebalancing_frequency": 10, "volatility_target": 0.12, "turnover_penalty_weight": 0.008},
+            "ppo_params": {"learning_rate": 1e-4, "n_steps": 1024, "batch_size": 128, "n_epochs": 10, "gamma": 0.995}
+        },
+        "aggressive": {
+            "tickers": AGGRESSIVE_TICKERS,
+            "features_to_use": ["close", "daily_return", "close_vs_sma_50", "volatility_20", "momentum_20", "bollinger_width", "mfi", "atr"],
+            "env_params": {"window_size": 60, "rebalancing_frequency": 5, "volatility_target": 0.18, "turnover_penalty_weight": 0.005},
+            "ppo_params": {"learning_rate": 1e-5, "n_steps": 2048, "batch_size": 256, "n_epochs": 15, "gamma": 0.998}
+        }
+    }
 }
-
-# Environment parameters for the 5-stock portfolio.
-# Enhanced with additional parameters for better performance
-ENV_PARAMS = {
-    "window_size": 30,
-    "initial_balance": 10000.0,
-    "transaction_cost_pct": 0.001,
-    "volatility_penalty_weight": 0.8287413582328335,
-    "loss_aversion_factor": 2.2001849979841603,
-    "rolling_volatility_window": 113,
-    "turnover_penalty_weight": 0.12950481652566614,
-    "max_concentration_per_asset": 0.9991397452797207,
-    # Additional parameters for enhanced performance
-    "sharpe_target": 1.5,  # Target Sharpe ratio
-    "max_drawdown_limit": 0.25,  # Maximum acceptable drawdown
-    "rebalancing_frequency": 5,  # Days between rebalancing
-    "momentum_lookback": 20,  # Days for momentum calculation
-    "mean_reversion_lookback": 60,  # Days for mean reversion signals
-}
- 
