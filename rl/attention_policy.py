@@ -19,6 +19,7 @@ class AttentionFeaturesExtractor(BaseFeaturesExtractor):
         # but our transformer has its own internal dimension. We will use the one calculated.
         super().__init__(observation_space, features_dim)
 
+
         num_features = observation_space["features"].shape[-1]
         window_size = observation_space["features"].shape[-2]
 
@@ -26,12 +27,14 @@ class AttentionFeaturesExtractor(BaseFeaturesExtractor):
             nn.Conv1d(
                 in_channels=num_features, out_channels=64, kernel_size=3, padding=1
             ),
+
             nn.ReLU(),
             nn.Flatten(),
         )
         with torch.no_grad():
             dummy_input = torch.zeros(1, num_features, window_size)
             cnn_output_dim = self.cnn(dummy_input).shape[1]
+
 
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=cnn_output_dim,
@@ -60,6 +63,7 @@ class AttentionFeaturesExtractor(BaseFeaturesExtractor):
         transformer_output = self.transformer_encoder(
             stock_features, src_key_padding_mask=padding_mask
         )
+
         # We now return the mask as well, as it's needed in the policy's forward pass
         return transformer_output, mask
 
@@ -73,6 +77,7 @@ class AttentionPolicy(ActorCriticPolicy):
     def __init__(self, observation_space, action_space, lr_schedule, *args, **kwargs):
         self.top_k_stocks = action_space.shape[0]
 
+
         # --- THE FIX ---
         # 1. Let the parent class run its full initialization.
         # It will create a default mlp_extractor, action_net, and value_net that we will ignore and overwrite.
@@ -84,6 +89,7 @@ class AttentionPolicy(ActorCriticPolicy):
         mlp_input_dim = self.top_k_stocks * transformer_feature_dim
 
         self.action_net = nn.Sequential(
+
             nn.Linear(mlp_input_dim, 128), nn.ReLU(), nn.Linear(128, self.top_k_stocks)
         )
         self.value_net = nn.Sequential(
@@ -98,12 +104,14 @@ class AttentionPolicy(ActorCriticPolicy):
         # The latent_features are the output from our AttentionFeaturesExtractor
         latent_features, mask = self.features_extractor(obs)
 
+
         # SCREENING/RANKING
         scores = latent_features.mean(dim=-1)
         scores[mask == 0] = -torch.inf
 
         # SELECTION
         _, top_k_indices = torch.topk(scores, self.top_k_stocks, dim=1)
+
 
         # GATHER FEATURES
         top_k_features = torch.gather(
@@ -119,14 +127,17 @@ class AttentionPolicy(ActorCriticPolicy):
         mean_actions = self.action_net(flat_top_k_features)
         distribution = self.action_dist.proba_distribution(mean_actions, self.log_std)
 
+
         actions = distribution.get_actions(deterministic=deterministic)
         log_prob = distribution.log_prob(actions)
 
         return actions, values, log_prob
 
+
     def evaluate_actions(
         self, obs: torch.Tensor, actions: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+
         """
         Evaluate actions according to the current policy,
         given the observations.
@@ -138,6 +149,7 @@ class AttentionPolicy(ActorCriticPolicy):
         # --- THIS IS THE NEW METHOD ---
         # It follows the same logic as forward() and predict_values()
         latent_features, mask = self.features_extractor(obs)
+
 
         scores = latent_features.mean(dim=-1)
         scores[mask == 0] = -torch.inf
@@ -175,6 +187,7 @@ class AttentionPolicy(ActorCriticPolicy):
         scores[mask == 0] = -torch.inf
         _, top_k_indices = torch.topk(scores, self.top_k_stocks, dim=1)
         top_k_features = torch.gather(
+
             latent_features,
             1,
             top_k_indices.unsqueeze(-1).expand(-1, -1, latent_features.shape[-1]),
@@ -203,11 +216,13 @@ class AttentionPolicy(ActorCriticPolicy):
             for key, val in observation.items()
         }
 
+
         with torch.no_grad():
             latent_features, mask = self.features_extractor(obs_tensor)
             scores = latent_features.mean(dim=-1)
             scores[mask == 0] = -torch.inf
             top_k_indices = torch.topk(scores, self.top_k_stocks, dim=1)[1]
+
             top_k_features = torch.gather(
                 latent_features,
                 1,
@@ -222,3 +237,4 @@ class AttentionPolicy(ActorCriticPolicy):
 
         compound_action = (top_k_indices.cpu().numpy()[0], allocations.cpu().numpy()[0])
         return compound_action, None
+

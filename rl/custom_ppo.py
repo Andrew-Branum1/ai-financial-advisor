@@ -1,10 +1,13 @@
 # rl/custom_ppo.py
+
 import numpy as np
 import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import VecEnv
 from stable_baselines3.common.callbacks import BaseCallback
+
 from stable_baselines3.common.utils import obs_as_tensor
+
 from stable_baselines3.common.buffers import RolloutBuffer
 from gymnasium import spaces
 
@@ -45,10 +48,12 @@ class CustomPPO(PPO):
             with torch.no_grad():
                 obs_tensor = obs_as_tensor(self._last_obs, self.device)
 
+
                 # The policy's `predict` method returns our custom tuple.
                 actions_tuple, _states = self.policy.predict(
                     obs_tensor, deterministic=False
                 )
+
 
                 # Get allocations, values, and log_probs for the buffer.
                 allocations, values, log_probs = self.policy(obs_tensor)
@@ -60,8 +65,10 @@ class CustomPPO(PPO):
             actions_for_vec_env = np.empty(env.num_envs, dtype=object)
             actions_for_vec_env[0] = actions_tuple
 
+
             # Pass the protected action to the environment
             new_obs, rewards, dones, infos = env.step(actions_for_vec_env)
+
 
             self.num_timesteps += env.num_envs
             callback.update_locals(locals())
@@ -80,9 +87,11 @@ class CustomPPO(PPO):
                     and infos[idx].get("terminal_observation") is not None
                     and infos[idx].get("TimeLimit.truncated", False)
                 ):
+
                     terminal_obs = self.policy.obs_to_tensor(
                         infos[idx]["terminal_observation"]
                     )[0]
+
                     with torch.no_grad():
                         terminal_value = self.policy.predict_values(terminal_obs)[0]
                     rewards[idx] += self.gamma * terminal_value
@@ -104,4 +113,6 @@ class CustomPPO(PPO):
         rollout_buffer.compute_returns_and_advantage(last_values=values, dones=dones)
         callback.on_rollout_end()
 
+
         return True
+

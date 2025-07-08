@@ -1,5 +1,7 @@
 # llm/advisor.py
 import os
+
+
 import textwrap
 import google.generativeai as genai
 
@@ -7,15 +9,18 @@ import google.generativeai as genai
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if not GEMINI_API_KEY:
+
     raise ValueError(
         "GEMINI_API_KEY environment variable not found. Please set it before running."
     )
+
 
 # Configure the generative AI client
 genai.configure(api_key=GEMINI_API_KEY)
 
 
 # In llm/advisor.py, replace the existing _build_prompt function
+
 
 
 def _build_prompt(
@@ -49,6 +54,7 @@ def _build_prompt(
         - Annualized Sharpe Ratio: {kpis.get('Annualized Sharpe Ratio', 0):.2f}
 
         The AI's final recommended portfolio allocation is:
+
 """
     )
     for ticker, weight in weights.items():
@@ -61,19 +67,24 @@ def _build_prompt(
         **Key Metrics Explained:** (Use bullet points to simply explain what the Cumulative Return, Max Drawdown, and Sharpe Ratio mean in this context.)
         **Final Takeaway:** (A 1-2 sentence concluding thought.)
         ---
+
     """
     )
+
 
     if user_goal == "Long-Term Growth":
         goal_instructions = "The user's goal is **Long-Term Growth**. Emphasize safety, diversification, and consistency in your explanations."
     elif user_goal == "Mid-Term Balanced":
         goal_instructions = "The user's goal is a **Mid-Term Balanced** approach. Emphasize the balance between risk (drawdown) and reward (return) in your explanations."
+
     elif user_goal == "Preservation":
         goal_instructions = "The user's goal is **Preservation**. Emphasize capital protection, low risk, and stability."
+
     else:  # Short-Term Speculation
         goal_instructions = "The user's goal is **Short-Term Speculation**. Use a direct tone. Emphasize that the strategy is high-risk and that past performance is not a guarantee of future results."
 
     return base_prompt + goal_instructions
+
 
 
 async def generate_investment_report(
@@ -90,3 +101,4 @@ async def generate_investment_report(
         error_message = f"An error occurred while calling the Gemini API: {e}"
         print(error_message)
         return error_message
+

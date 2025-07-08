@@ -3,7 +3,9 @@
 Central configuration file for the AI Financial Advisor project.
 This file serves as the single source of truth for all shared settings,
 ensuring consistency across data collection, training, and evaluation scripts.
+
 Enhanced for better short and long term prediction capabilities.
+
 """
 
 # --- Data Configuration ---
@@ -12,6 +14,7 @@ Enhanced for better short and long term prediction capabilities.
 # In both config.py and config_aggressive.py
 
 AGENT_TICKERS = [
+
     "AAPL",  # US Tech
     "MSFT",  # US Tech
     "GOOGL", # US Tech
@@ -124,3 +127,4 @@ ENV_PARAMS = {
     "momentum_lookback": 20,  # Days for momentum calculation
     "mean_reversion_lookback": 60,  # Days for mean reversion signals
 }
+ 

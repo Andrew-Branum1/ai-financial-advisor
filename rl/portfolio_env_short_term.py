@@ -3,6 +3,7 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 import pandas as pd
+
 import collections
 
 
@@ -17,20 +18,26 @@ class PortfolioEnvShortTerm(gym.Env):
 
     metadata = {"render_modes": ["human"]}
 
+
     def __init__(self, df: pd.DataFrame, feature_columns_ordered: list, **kwargs):
         super().__init__()
 
+
         if not isinstance(df, pd.DataFrame) or df.empty:
+
             raise ValueError("Input DataFrame `df` cannot be empty.")
 
         # --- ENV SETUP ---
         self.df = df
         self.feature_names = feature_columns_ordered
+
         self.tickers = sorted(list(set(col.split("_")[0] for col in df.columns)))
+
         self.asset_dim = len(self.tickers)
         self.num_features = len(self.feature_names)
 
         # --- KWARGS WITH DEFAULTS ---
+
         self.window_size = int(kwargs.get("window_size", 30))
         self.initial_balance = float(kwargs.get("initial_balance", 10000.0))
         self.transaction_cost_pct = float(kwargs.get("transaction_cost_pct", 0.001))
@@ -69,6 +76,7 @@ class PortfolioEnvShortTerm(gym.Env):
         self.portfolio_values_history = collections.deque(
             maxlen=max(self.momentum_lookback, self.mean_reversion_lookback)
         )
+
         self.reset()
 
     def reset(self, seed=None, options=None):
@@ -78,14 +86,17 @@ class PortfolioEnvShortTerm(gym.Env):
         self.weights = np.full(self.asset_dim, 1.0 / self.asset_dim, dtype=np.float32)
         self.previous_weights = self.weights.copy()
         self.recent_portfolio_returns.clear()
+
         self.portfolio_values_history.clear()
         self.portfolio_values_history.append(self.initial_balance)
 
         return self._get_observation(), self._get_info()
 
+
     def step(self, action: np.ndarray):
         self.previous_weights = self.weights.copy()
         action = np.clip(action, 0, self.max_concentration_per_asset)
+
         # --- ENFORCE TOP-5 SELECTION ---
         top_n = 5
         if len(action) > top_n:
@@ -93,27 +104,33 @@ class PortfolioEnvShortTerm(gym.Env):
             mask = np.zeros_like(action)
             mask[top_indices] = 1
             action = action * mask
+
         action_sum = np.sum(action)
         if action_sum > 1e-6:
             self.weights = action / action_sum
         else:
+
             self.weights = np.full(
                 self.asset_dim, 1.0 / self.asset_dim, dtype=np.float32
             )
 
         # Calculate transaction costs
+
         turnover = np.sum(np.abs(self.weights - self.previous_weights))
         costs = self.portfolio_value * turnover * self.transaction_cost_pct
         self.portfolio_value -= costs
 
         # Calculate portfolio return for this step
+
         try:
             close_col_names = [col for col in self.df.columns if col.endswith("_close")]
+
             close_prices_df = self.df[close_col_names]
             prev_close_prices = close_prices_df.iloc[self.current_step - 1].values
             current_close_prices = close_prices_df.iloc[self.current_step].values
             daily_asset_returns = (current_close_prices / prev_close_prices) - 1
         except Exception:
+
             daily_asset_returns = np.zeros(self.asset_dim)
 
         portfolio_daily_return = np.dot(self.weights, daily_asset_returns)
@@ -129,9 +146,11 @@ class PortfolioEnvShortTerm(gym.Env):
         # Use scalar_return for reward calculation
         final_reward = self._calculate_enhanced_reward(scalar_return, turnover)
 
+
         self.current_step += 1
         terminated = self.current_step >= len(self.df) - 1
         truncated = terminated
+
 
         info = self._get_info()
         info["transaction_costs"] = costs

@@ -3,10 +3,13 @@ import yfinance as yf
 import pandas as pd
 from sqlalchemy import create_engine, text
 from datetime import datetime, timedelta
+
+
 import logging
 import os
 
 # --- MODIFICATION: Import settings from the central config file ---
+
 from config import AGENT_TICKERS, BENCHMARK_TICKER
 
 # ========== Logging Configuration ==========
@@ -14,18 +17,22 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
+
 # ========== CONFIGURATION ==========
 # --- MODIFICATION: Tickers are now sourced from the config file ---
 TICKERS_TO_FETCH = sorted(list(set(AGENT_TICKERS + [BENCHMARK_TICKER])))
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 DB_DIR = os.path.join(PROJECT_ROOT, "data")
 DB_FILENAME = "market_data.db"
 DB_PATH = os.path.join(DB_DIR, DB_FILENAME)
 DB_URI = f"sqlite:///{DB_PATH}"
 
+
 os.makedirs(DB_DIR, exist_ok=True)
 engine = create_engine(DB_URI)
+
 
 
 def create_table_if_not_exists():
@@ -35,10 +42,12 @@ def create_table_if_not_exists():
             conn.execute(
                 text(
                     """
+
                 CREATE TABLE IF NOT EXISTS price_data (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     ticker TEXT NOT NULL,
                     date DATE NOT NULL,
+
                     close REAL,
                     volume INTEGER,
                     daily_return REAL,
@@ -72,15 +81,18 @@ def fetch_and_store_ticker_data(
         logging.warning(
             f"No data returned or invalid format for {ticker_symbol}. Skipping."
         )
+
         return
 
     df.reset_index(inplace=True)
 
     # --- INTEGRATED FIX: Handle tuple-based column names from yfinance ---
+
     new_columns = []
     for col in df.columns:
         # If a column name is a tuple, take the first element. Otherwise, use the name as is.
         col_name = str(col[0]) if isinstance(col, tuple) else str(col)
+
         new_columns.append(col_name.lower().replace(" ", "_"))
     df.columns = new_columns
 
@@ -129,3 +141,4 @@ def run_data_collection_job():
 
 if __name__ == "__main__":
     run_data_collection_job()
+

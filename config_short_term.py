@@ -1,6 +1,7 @@
 # config_short_term.py
 """
 Configuration for the ACTIVE, short-term RL agent.
+
 Enhanced with additional features for better short-term prediction.
 """
 
@@ -79,3 +80,4 @@ ENV_PARAMS = {
     "momentum_window": 20,
     "mean_reversion_window": 60,
 }
+

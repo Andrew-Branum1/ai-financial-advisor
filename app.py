@@ -1,9 +1,12 @@
 # app.py
+
 from flask import Flask, render_template, jsonify, request
+
 import os
 import logging
 import subprocess
 import json
+
 import asyncio
 from typing import Dict, Optional, Any
 import numpy as np
@@ -29,10 +32,12 @@ except ImportError:
     logging.error("Stable Baselines3 (PPO) not found. Please ensure it's installed.")
     PPO = None
 
+
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
 # Path to the directory where plots and reports are saved
+
 OUTPUT_DIR = os.path.join(os.getcwd(), "plots")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -809,3 +814,4 @@ def safe_generate_investment_report(*args, **kwargs):
 
 if __name__ == "__main__":
     app.run(debug=True, port=5001)
+

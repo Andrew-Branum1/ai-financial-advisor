@@ -6,6 +6,7 @@ import logging
 import numpy as np
 from stable_baselines3.common.base_class import BaseAlgorithm
 import gym
+
 from typing import List, Optional, Dict
 from dataclasses import dataclass
 
@@ -87,6 +88,7 @@ def load_market_data_for_universal_env(
     start_date: str,
     end_date: str,
     db_path: str = DEFAULT_DB_PATH,
+
 ) -> pd.DataFrame:
     """
     Loads market data in a long format suitable for the universal environment.
@@ -115,16 +117,20 @@ def load_market_data_for_universal_env(
         params = tickers_list + [start_date, end_date]
         long_df = pd.read_sql_query(query, conn, params=params, parse_dates=["date"])
 
+
     except Exception as e:
         logging.error(f"Error querying database: {e}")
         return pd.DataFrame()
     finally:
+
         if "conn" in locals() and conn:
+
             conn.close()
 
     if long_df.empty:
         logging.warning("No data returned from the database for the given parameters.")
         return pd.DataFrame()
+
 
     # Forward-fill and back-fill missing values per ticker
     long_df = long_df.groupby("ticker").apply(lambda group: group.ffill().bfill())
@@ -142,6 +148,7 @@ def load_market_data_from_db(
     db_path: str = DEFAULT_DB_PATH,
     min_data_points: int = 60,
 ) -> pd.DataFrame:
+
     """
     Loads specified market data features for given tickers from the SQLite database,
     and pivots it into a wide format suitable for PortfolioEnv.
@@ -161,6 +168,7 @@ def load_market_data_from_db(
         pd.DataFrame: DataFrame with dates as index, and TICKER_feature as columns. Empty if fails.
     """
     if tickers_list is None:
+
         tickers_list = ["AAPL", "MSFT", "GOOGL"]
     if feature_columns is None:
         feature_columns = ["close"]  # Default to only 'close' if not specified
@@ -169,6 +177,7 @@ def load_market_data_from_db(
         f"Attempting to load features: {feature_columns} for tickers: {tickers_list} from DB: {db_path}"
     )
 
+
     if not os.path.exists(db_path):
         logging.error(f"Database file not found at {db_path}")
         return pd.DataFrame()
@@ -176,16 +185,20 @@ def load_market_data_from_db(
     try:
         conn = sqlite3.connect(db_path)
         # Ensure 'date' and 'ticker' are always selected along with requested feature_columns
+
         columns_to_select_str = ", ".join(
             sorted(list(set(feature_columns)))
         )  # Use set to avoid duplicates if any
+
         query = f"SELECT date, ticker, {columns_to_select_str} FROM price_data"
 
         filters = []
         params = []
 
         if tickers_list:
+
             placeholders = ",".join("?" for _ in tickers_list)
+
             filters.append(f"ticker IN ({placeholders})")
             params.extend(tickers_list)
 
@@ -201,11 +214,14 @@ def load_market_data_from_db(
 
         query += " ORDER BY date ASC, ticker ASC"
 
+
         long_df = pd.read_sql_query(query, conn, params=params, parse_dates=["date"])
+
     except Exception as e:
         logging.error(f"Error querying database (features: {feature_columns}): {e}")
         return pd.DataFrame()
     finally:
+
         if "conn" in locals() and conn:
             conn.close()
 
@@ -213,11 +229,13 @@ def load_market_data_from_db(
         logging.warning(
             f"No data retrieved for tickers {tickers_list} with features: {feature_columns}."
         )
+
         return pd.DataFrame()
 
     # Verify all requested feature_columns are present in the loaded long_df before pivot
     missing_in_df = [fc for fc in feature_columns if fc not in long_df.columns]
     if missing_in_df:
+
         logging.warning(
             f"The following requested feature_columns were not found in the data fetched from DB: {missing_in_df}. They might be missing from the table for the selected period/tickers or there might be a typo."
         )
@@ -242,10 +260,12 @@ def load_market_data_from_db(
             f"{ticker}_{feature}" for feature, ticker in market_df.columns
         ]
 
+
         # Reorder columns: Group by ticker, then by feature (for consistency)
         sorted_columns = []
         # Use the tickers_list provided by the user for the primary order of tickers
         # and feature_columns for the order of features within each ticker.
+
         processed_tickers_ordered = [
             t
             for t in tickers_list
@@ -264,11 +284,13 @@ def load_market_data_from_db(
             logging.error(
                 "Could not form sorted columns. Check data, ticker names, and feature names."
             )
+
             return pd.DataFrame()
 
         market_df = market_df[sorted_columns]
 
     except Exception as e:
+
         logging.error(
             f"Error pivoting or reformatting DataFrame: {e}. Long data head:\n{long_df.head(20)}",
             exc_info=True,
@@ -283,11 +305,13 @@ def load_market_data_from_db(
     market_df.bfill(inplace=True)
     market_df.dropna(how="any", inplace=True)
 
+
     if market_df.empty:
         logging.warning("DataFrame is empty after pivoting and NaN handling.")
         return pd.DataFrame()
 
     if len(market_df) < min_data_points:
+
         logging.warning(
             f"Loaded data has {len(market_df)} rows, less than minimum {min_data_points}."
         )
@@ -679,3 +703,4 @@ def load_market_data_with_indicators(
 
     logging.info(f"Market data with indicators loaded successfully. Shape: {df.shape}")
     return df
+

@@ -12,6 +12,7 @@ class UniversalPortfolioEnv(gym.Env):
     policy that can handle this structure (e.g., an Attention/Transformer model).
     """
 
+
     def __init__(
         self,
         df: pd.DataFrame,
@@ -38,6 +39,7 @@ class UniversalPortfolioEnv(gym.Env):
         self.sharpe_window = sharpe_window
         self.drawdown_penalty_weight = drawdown_penalty_weight
 
+
         # Unique dates and tickers in the dataset
         self.trade_dates = sorted(self.df.index.unique())
         self.all_tickers = sorted(self.df["ticker"].unique())
@@ -63,19 +65,23 @@ class UniversalPortfolioEnv(gym.Env):
             }
         )
 
+
         self.reset()
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.current_step_index = self.window_size
         self.portfolio_value = self.initial_balance
+
         self.portfolio_composition = {}  # Will hold {ticker: shares}
         self.daily_returns_history = []
+
 
         return self._get_observation(), self._get_info()
 
     def step(self, action):
         top_k_indices, allocation_weights = action
+
 
         # --- FIX 1: Sanitize Agent's Action ---
         # If the model outputs nan/inf, replace them with zeros and clip to a valid range.
@@ -87,6 +93,7 @@ class UniversalPortfolioEnv(gym.Env):
             allocation_weights, 0, 1e6
         )  # Clip to a large but finite number
 
+
         # Normalize weights to sum to 1
         if np.sum(allocation_weights) > 1e-8:
             allocation_weights = allocation_weights / np.sum(allocation_weights)
@@ -96,6 +103,7 @@ class UniversalPortfolioEnv(gym.Env):
         # --- (Liquidation logic is fine) ---
         current_date = self.trade_dates[self.current_step_index]
         prev_date = self.trade_dates[self.current_step_index - 1]
+
         prev_data = self.df.loc[prev_date].set_index("ticker")
 
         liquidated_value = 0
@@ -107,12 +115,14 @@ class UniversalPortfolioEnv(gym.Env):
             self.portfolio_value if not self.portfolio_composition else liquidated_value
         )
 
+
         # --- FIX 2: Check for Catastrophic Portfolio State ---
         # If cash is not a finite number or is bankrupt, the episode has failed.
         if not np.isfinite(cash) or cash <= 0:
             # End the episode immediately with a large penalty.
             terminated = True
             truncated = True
+
             return (
                 self._get_observation(),
                 -1e6,
@@ -121,19 +131,23 @@ class UniversalPortfolioEnv(gym.Env):
                 self._get_info(),
             )
 
+
         # --- (New portfolio calculation is fine) ---
         self.portfolio_composition = {}
         target_tickers = [self.all_tickers[i] for i in top_k_indices]
+
         current_data_indexed = self.df.loc[current_date].set_index("ticker")
         for i, ticker in enumerate(target_tickers):
             if ticker in current_data_indexed.index:
                 investment = cash * allocation_weights[i]
                 price = current_data_indexed.loc[ticker, "close"]
+
                 investment -= investment * self.transaction_cost_pct
                 self.portfolio_composition[ticker] = investment / price
 
         # --- (Next day value calculation is fine) ---
         next_date = self.trade_dates[self.current_step_index + 1]
+
         next_data = self.df.loc[next_date].set_index("ticker")
 
         next_day_value = 0
@@ -155,10 +169,12 @@ class UniversalPortfolioEnv(gym.Env):
             next_day_value if np.isfinite(next_day_value) else self.portfolio_value
         )
 
+
         reward = self._calculate_reward()
 
         # --- FIX 4: Final Check on Reward ---
         if not np.isfinite(reward):
+
             reward = 0.0  # Use a neutral reward if calculation fails, to avoid poisoning the agent
 
         self.current_step_index += 1
@@ -171,6 +187,7 @@ class UniversalPortfolioEnv(gym.Env):
     def _get_observation(self):
         end_idx = self.current_step_index
         start_idx = end_idx - self.window_size
+
 
         window_dates = self.trade_dates[start_idx:end_idx]
         obs_df = self.df[self.df.index.isin(window_dates)]
@@ -202,10 +219,12 @@ class UniversalPortfolioEnv(gym.Env):
 
     # ... rest of the class ...
 
+
     def _calculate_reward(self):
         # Example for a LONG-TERM goal (customize for others)
         if len(self.daily_returns_history) < self.sharpe_window:
             return 0.0
+
 
         recent_returns = np.array(self.daily_returns_history[-self.sharpe_window :])
         sharpe_ratio = (
@@ -220,11 +239,14 @@ class UniversalPortfolioEnv(gym.Env):
         drawdown = (portfolio_values - peak) / peak
         drawdown_penalty = np.min(drawdown) * self.drawdown_penalty_weight
 
+
         reward = sharpe_ratio + drawdown_penalty
         return reward * self.reward_scaling
 
     def _get_info(self):
+
         return {
             "portfolio_value": self.portfolio_value,
             "date": self.trade_dates[self.current_step_index],
         }
+

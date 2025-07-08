@@ -10,7 +10,9 @@ sqlalchemy
 transformers
 ta
 tensorboard
+
 seaborn
 flask
 requests
 asyncio
+
