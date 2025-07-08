@@ -76,7 +76,7 @@ The core problem addressed is: How can we design an AI system that provides robu
 
 - Training: 2010–2021
 - Validation: 2022–2024 (holdout)
-- Stress test windows: COVID crash (2020-02 to 2020-05), 2022 bear market
+- Stress test windows: COVID crash (2020-0222 to 2020-25), 2022 bear market
 
 ### 3.2 RL Environment Design
 
