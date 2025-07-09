@@ -1,233 +1,162 @@
-# rl/portfolio_env_short_term.py
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 import pandas as pd
 
-import collections
-
-
 class PortfolioEnvShortTerm(gym.Env):
     """
-    An enhanced environment that rewards the agent based on multiple factors:
-    - Rolling Sharpe ratio for short-term performance
-    - Momentum and mean reversion signals
-    - Volatility targeting
-    - Enhanced risk management
-    """
+    A short-term portfolio management environment for reinforcement learning.
 
+    This environment simulates managing a portfolio of assets over time, with a focus
+    on short-term metrics.
+
+    Args:
+        df (pd.DataFrame): A DataFrame with historical market data in a wide format.
+            Must contain columns like 'TICKER_feature'.
+        features_for_observation (list): A list of feature names (e.g., 'rsi', 'macd')
+            that will be used to construct the agent's observation.
+        window_size (int): The number of past time steps to include in the observation.
+        initial_balance (float): The starting balance of the portfolio.
+        transaction_cost_pct (float): The percentage cost for each transaction.
+        volatility_target (float): The desired annualized volatility for the portfolio.
+        turnover_penalty_weight (float): A penalty multiplier for high portfolio turnover.
+        max_concentration_per_asset (float): The maximum weight any single asset can have.
+    """
     metadata = {"render_modes": ["human"]}
 
-
-    def __init__(self, df: pd.DataFrame, feature_columns_ordered: list, **kwargs):
+    def __init__(self, df, features_for_observation, window_size=30, initial_balance=100_000,
+                 transaction_cost_pct=0.001, volatility_target=0.15,
+                 turnover_penalty_weight=0.01, max_concentration_per_asset=0.35, **kwargs):
         super().__init__()
 
-
-        if not isinstance(df, pd.DataFrame) or df.empty:
-
-            raise ValueError("Input DataFrame `df` cannot be empty.")
-
-        # --- ENV SETUP ---
         self.df = df
-        self.feature_names = feature_columns_ordered
+        self.window_size = window_size
+        self.initial_balance = initial_balance
+        self.transaction_cost_pct = transaction_cost_pct
+        self.volatility_target = volatility_target
+        self.turnover_penalty_weight = turnover_penalty_weight
+        self.max_concentration_per_asset = max_concentration_per_asset
+        
+        # --- CORE FIX: SEPARATE OBSERVATION DATA FROM CALCULATION DATA ---
+        
+        # 1. Identify all tickers from the wide-format DataFrame.
+        self.tickers = sorted(list(set([c.split('_')[0] for c in df.columns])))
+        self.num_tickers = len(self.tickers)
 
-        self.tickers = sorted(list(set(col.split("_")[0] for col in df.columns)))
+        # 2. Create a specific list of columns that will form the agent's observation.
+        self.features_for_observation = features_for_observation
+        self.observation_columns = [f"{ticker}_{feat}" for ticker in self.tickers for feat in self.features_for_observation]
+        
+        # 3. Create a new, smaller DataFrame containing only the observation columns.
+        #    This ensures that _get_observation() always returns the correct shape.
+        self.df_observation = self.df[self.observation_columns].copy()
+        
+        # --- END FIX ---
 
-        self.asset_dim = len(self.tickers)
-        self.num_features = len(self.feature_names)
+        # Action space: weights for each ticker. The agent doesn't need to decide the cash weight.
+        self.action_space = spaces.Box(low=0, high=1, shape=(self.num_tickers,), dtype=np.float32)
 
-        # --- KWARGS WITH DEFAULTS ---
-
-        self.window_size = int(kwargs.get("window_size", 30))
-        self.initial_balance = float(kwargs.get("initial_balance", 10000.0))
-        self.transaction_cost_pct = float(kwargs.get("transaction_cost_pct", 0.001))
-        self.rolling_volatility_window = int(
-            kwargs.get("rolling_volatility_window", 20)
-        )
-        self.max_concentration_per_asset = float(
-            kwargs.get("max_concentration_per_asset", 1.0)
-        )
-        self.turnover_penalty_weight = float(
-            kwargs.get("turnover_penalty_weight", 0.01)
-        )
-
-        # Enhanced parameters
-        self.momentum_weight = float(kwargs.get("momentum_weight", 0.3))
-        self.mean_reversion_weight = float(kwargs.get("mean_reversion_weight", 0.2))
-        self.volatility_target = float(kwargs.get("volatility_target", 0.15))
-        self.momentum_lookback = int(kwargs.get("momentum_lookback", 20))
-        self.mean_reversion_lookback = int(kwargs.get("mean_reversion_lookback", 60))
-
-        # --- SPACES ---
-        self.action_space = spaces.Box(
-            low=0, high=1, shape=(self.asset_dim,), dtype=np.float32
-        )
+        # Observation space: defined by the window size and the number of features *for observation*.
         self.observation_space = spaces.Box(
             low=-np.inf,
             high=np.inf,
-            shape=(self.window_size, self.asset_dim * self.num_features),
+            shape=(self.window_size, len(self.observation_columns)),
             dtype=np.float32,
         )
 
-        # --- STATE VARIABLES ---
-        self.recent_portfolio_returns = collections.deque(
-            maxlen=self.rolling_volatility_window
-        )
-        self.portfolio_values_history = collections.deque(
-            maxlen=max(self.momentum_lookback, self.mean_reversion_lookback)
-        )
-
-        self.reset()
-
-    def reset(self, seed=None, options=None):
-        super().reset(seed=seed)
-        self.current_step = self.window_size
+        # Initialize state variables
+        self.current_step = 0
+        self.balance = self.initial_balance
+        self.weights = np.zeros(self.num_tickers)
         self.portfolio_value = self.initial_balance
-        self.weights = np.full(self.asset_dim, 1.0 / self.asset_dim, dtype=np.float32)
-        self.previous_weights = self.weights.copy()
-        self.recent_portfolio_returns.clear()
-
-        self.portfolio_values_history.clear()
-        self.portfolio_values_history.append(self.initial_balance)
-
-        return self._get_observation(), self._get_info()
-
-
-    def step(self, action: np.ndarray):
-        self.previous_weights = self.weights.copy()
-        action = np.clip(action, 0, self.max_concentration_per_asset)
-
-        # --- ENFORCE TOP-5 SELECTION ---
-        top_n = 5
-        if len(action) > top_n:
-            top_indices = np.argsort(action)[-top_n:]
-            mask = np.zeros_like(action)
-            mask[top_indices] = 1
-            action = action * mask
-
-        action_sum = np.sum(action)
-        if action_sum > 1e-6:
-            self.weights = action / action_sum
-        else:
-
-            self.weights = np.full(
-                self.asset_dim, 1.0 / self.asset_dim, dtype=np.float32
-            )
-
-        # Calculate transaction costs
-
-        turnover = np.sum(np.abs(self.weights - self.previous_weights))
-        costs = self.portfolio_value * turnover * self.transaction_cost_pct
-        self.portfolio_value -= costs
-
-        # Calculate portfolio return for this step
-
-        try:
-            close_col_names = [col for col in self.df.columns if col.endswith("_close")]
-
-            close_prices_df = self.df[close_col_names]
-            prev_close_prices = close_prices_df.iloc[self.current_step - 1].values
-            current_close_prices = close_prices_df.iloc[self.current_step].values
-            daily_asset_returns = (current_close_prices / prev_close_prices) - 1
-        except Exception:
-
-            daily_asset_returns = np.zeros(self.asset_dim)
-
-        portfolio_daily_return = np.dot(self.weights, daily_asset_returns)
-        self.portfolio_value *= 1 + portfolio_daily_return
-        # Ensure portfolio_daily_return is a scalar (float)
-        if isinstance(portfolio_daily_return, (np.ndarray, list)):
-            scalar_return = float(np.sum(portfolio_daily_return))
-        else:
-            scalar_return = float(portfolio_daily_return)
-        self.recent_portfolio_returns.append(scalar_return)
-        self.portfolio_values_history.append(self.portfolio_value)
-
-        # Use scalar_return for reward calculation
-        final_reward = self._calculate_enhanced_reward(scalar_return, turnover)
-
-
-        self.current_step += 1
-        terminated = self.current_step >= len(self.df) - 1
-        truncated = terminated
-
-
-        info = self._get_info()
-        info["transaction_costs"] = costs
-        info["raw_daily_return"] = portfolio_daily_return
-        info["turnover"] = turnover
-
-        return self._get_observation(), float(final_reward), terminated, truncated, info
-
-    def _calculate_enhanced_reward(self, daily_return: float, turnover: float) -> float:
-        """
-        Enhanced reward function incorporating multiple factors for better prediction.
-        """
-        reward = 0.0
-
-        # 1. Sharpe ratio component (short-term focus)
-        if len(self.recent_portfolio_returns) == self.rolling_volatility_window:
-            recent_returns = np.array(list(self.recent_portfolio_returns))
-            if np.std(recent_returns) > 1e-6:
-                sharpe_component = np.mean(recent_returns) / np.std(recent_returns)
-                reward += float(sharpe_component)
-
-        # 2. Momentum component
-        if len(self.portfolio_values_history) >= self.momentum_lookback:
-            recent_values = list(self.portfolio_values_history)[
-                -self.momentum_lookback :
-            ]
-            if len(recent_values) >= 2:
-                momentum = (recent_values[-1] / recent_values[0]) - 1
-                reward += self.momentum_weight * float(momentum)
-
-        # 3. Mean reversion component
-        if len(self.portfolio_values_history) >= self.mean_reversion_lookback:
-            long_term_values = list(self.portfolio_values_history)[
-                -self.mean_reversion_lookback :
-            ]
-            if len(long_term_values) >= 2:
-                long_term_return = (long_term_values[-1] / long_term_values[0]) - 1
-                # Penalize if too far from long-term trend
-                mean_reversion_penalty = -self.mean_reversion_weight * abs(
-                    long_term_return
-                )
-                reward += float(mean_reversion_penalty)
-
-        # 4. Volatility targeting
-        if len(self.recent_portfolio_returns) >= 20:
-            current_vol = np.std(self.recent_portfolio_returns) * np.sqrt(252)
-            vol_penalty = -abs(current_vol - self.volatility_target) * 0.1
-            reward += float(vol_penalty)
-
-        # 5. Turnover penalty
-        reward -= self.turnover_penalty_weight * turnover
-
-        # 6. Drawdown penalty
-        if len(self.portfolio_values_history) >= 2:
-            peak = max(self.portfolio_values_history)
-            current_drawdown = (self.portfolio_value - peak) / peak
-            if current_drawdown < -0.1:  # Penalize drawdowns > 10%
-                reward += float(current_drawdown * 2.0)
-
-        return float(reward)
+        self.done = False
 
     def _get_observation(self):
-        obs_window = self.df.iloc[
-            self.current_step - self.window_size : self.current_step
-        ].values.astype(np.float32)
-        obs_mean = np.nanmean(obs_window, axis=0)
-        obs_std = np.nanstd(obs_window, axis=0)
-        obs_std_safe = np.where((obs_std == 0) | np.isnan(obs_std), 1.0, obs_std)
-        obs_norm = (obs_window - obs_mean) / obs_std_safe
-        obs_norm = np.where(np.isnan(obs_norm), 0, obs_norm)
-        return obs_norm
+        """Returns the observation for the current step."""
+        # Slices the pre-filtered observation DataFrame. This now guarantees the correct shape.
+        obs = self.df_observation.iloc[self.current_step : self.current_step + self.window_size].values
+        return obs
 
-    def _get_info(self):
-        return {
+    def _get_reward(self, portfolio_return, volatility, turnover):
+        """Calculates the reward for a given step."""
+        # A simple Sharpe ratio-like reward, penalized for high turnover and deviation from volatility target.
+        sharpe_ratio = portfolio_return / (volatility + 1e-7)
+        turnover_penalty = self.turnover_penalty_weight * turnover
+        volatility_penalty = abs(volatility - self.volatility_target)
+        
+        reward = sharpe_ratio - turnover_penalty - volatility_penalty
+        return reward
+
+    def reset(self, seed=None, options=None):
+        """Resets the environment to its initial state."""
+        super().reset(seed=seed)
+        self.balance = self.initial_balance
+        self.portfolio_value = self.initial_balance
+        self.weights = np.zeros(self.num_tickers)
+        self.current_step = self.window_size
+        self.done = False
+
+        initial_observation = self._get_observation()
+        info = {"message": "Environment reset."}
+
+        return initial_observation, info
+
+    def step(self, action):
+        """Executes one time step within the environment."""
+        # 1. Process Action: Normalize weights and apply constraints.
+        target_weights = np.array(action)
+        target_weights = np.clip(target_weights, 0, self.max_concentration_per_asset)
+        
+        # Normalize to sum to 1
+        if np.sum(target_weights) > 0:
+            target_weights = target_weights / np.sum(target_weights)
+        
+        # 2. Calculate Metrics
+        previous_weights = self.weights.copy()
+        turnover = np.sum(np.abs(target_weights - previous_weights))
+        transaction_costs = self.portfolio_value * turnover * self.transaction_cost_pct
+
+        # 3. Update Portfolio
+        self.portfolio_value -= transaction_costs
+        self.weights = target_weights
+
+        # 4. Calculate Portfolio Return for the current day
+        # We use the full `self.df` here to get the 'daily_return' columns.
+        return_cols = [f"{ticker}_daily_return" for ticker in self.tickers]
+        
+        # Ensure we don't go out of bounds
+        if self.current_step + self.window_size >= len(self.df):
+            self.done = True
+            # Return zero reward if we are at the end
+            return self._get_observation(), 0.0, True, False, {}
+
+        daily_asset_returns = self.df[return_cols].iloc[self.current_step + self.window_size].values
+        daily_asset_returns = np.nan_to_num(daily_asset_returns) # Handle missing data
+        
+        portfolio_daily_return = np.dot(self.weights, daily_asset_returns)
+        self.portfolio_value *= (1 + portfolio_daily_return)
+        
+        # 5. Calculate Volatility
+        # Use the full `self.df` to get 'daily_return' columns for the past window.
+        window_returns = self.df[return_cols].iloc[self.current_step : self.current_step + self.window_size]
+        portfolio_window_returns = (window_returns * self.weights).sum(axis=1)
+        volatility = portfolio_window_returns.std() * np.sqrt(252) # Annualized
+        volatility = np.nan_to_num(volatility)
+
+        # 6. Advance Time and Check for Completion
+        self.current_step += 1
+        if self.current_step >= len(self.df) - self.window_size - 1 or self.portfolio_value <= 0:
+            self.done = True
+        
+        # 7. Calculate Reward and Get Next Observation
+        reward = self._get_reward(portfolio_daily_return, volatility, turnover)
+        observation = self._get_observation()
+        
+        info = {
             "portfolio_value": self.portfolio_value,
-            "weights": self.weights.tolist(),
+            "turnover": turnover,
+            "volatility": volatility,
+            "reward": reward,
         }
 
-    def close(self):
-        pass
+        return observation, reward, self.done, False, info
