@@ -9,6 +9,7 @@ import json
 import logging
 import sqlite3
 from glob import glob
+import traceback
 
 import numpy as np
 import pandas as pd
@@ -17,47 +18,20 @@ from stable_baselines3 import PPO
 
 # --- Project-specific Imports ---
 import config
-# This will now work correctly because the new advisor.py provides the instance.
 from llm.advisor import financial_advisor
 # We will patch the data loader function from src/utils below.
-from src.utils import load_market_data_from_db
+from src.data_manager import load_market_data_from_db
 
 # --- Basic Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 app = Flask(__name__)
-
-# --- Database Hotfix ---
-# This patch ensures app.py uses the same corrected database logic as the training script.
-def patched_load_market_data_from_db():
-    db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data', 'market_data.db')
-    logging.info(f"Attempting to load all data from wide-format table in DB: {db_path}")
-    try:
-        with sqlite3.connect(db_path) as conn:
-            query = 'SELECT * FROM features_market_data ORDER BY "Date" ASC'
-            df = pd.read_sql_query(query, conn)
-    except Exception as e:
-        logging.error(f"Error querying database: {e}")
-        return None
-    
-    if 'Date' not in df.columns:
-        logging.error(f"CRITICAL: 'Date' column not found. Columns are: {df.columns.tolist()}")
-        return None
-        
-    df.rename(columns={'Date': 'date'}, inplace=True)
-    df['date'] = pd.to_datetime(df['date'])
-    df.set_index('date', inplace=True)
-    return df
-
-# Replace the original function from src/utils with our patched version
-load_market_data_from_db = patched_load_market_data_from_db
-logging.info("Applied runtime patch to 'load_market_data_from_db'.")
-# --- End Hotfix ---
 
 
 # --- Global Cache for Models ---
 MODEL_CACHE = {}
 
 def find_latest_model(model_name_prefix: str) -> str | None:
+    """Finds the most recent model zip file for a given config."""
     search_path = os.path.join('models', f'{model_name_prefix}_*')
     list_of_dirs = glob(search_path)
     if not list_of_dirs: return None
@@ -66,6 +40,7 @@ def find_latest_model(model_name_prefix: str) -> str | None:
     return model_path if os.path.exists(model_path) else None
 
 def load_all_models():
+    """Loads the latest version of each model specified in config.py into memory."""
     logging.info("Starting to load all available models...")
     for model_name in config.MODEL_CONFIGS.keys():
         logging.info(f"Searching for model: {model_name}")
@@ -83,11 +58,15 @@ def load_all_models():
 
 @app.route('/')
 def home():
-    return render_template('index.html')
+    """Renders the main web page."""
+    # Pass the list of available models to the frontend template
+    available_models = sorted(list(MODEL_CACHE.keys()))
+    return render_template('index.html', models=available_models)
 
 
 @app.route('/get_advice', methods=['POST'])
 def get_advice():
+    """Handles the API request for financial advice."""
     data = request.get_json()
     if not data: return jsonify({'error': 'Invalid request.'}), 400
 
@@ -103,64 +82,90 @@ def get_advice():
     if not model: return jsonify({'error': f'Model "{model_name}" is not available.'}), 404
 
     try:
+        # --- Prepare data exactly as the model expects ---
         model_folder = os.path.dirname(find_latest_model(model_name))
         info_path = os.path.join(model_folder, 'training_info.json')
         with open(info_path, 'r') as f:
             training_info = json.load(f)
+
         window_size = training_info['best_hyperparameters'].get('window_size', 60)
-        
-        model_cfg = config.MODEL_CONFIGS[model_name]
-        
+        features_from_training = training_info['features_used']
+
         df = load_market_data_from_db()
+        df.index = pd.to_datetime(df.index)
         if df is None or df.empty:
              raise ValueError("Failed to load market data from DB.")
-        
-        # --- CORE FIX for IndexError ---
-        # Dynamically determine the exact list of tickers this model was trained on.
-        features_for_observation = model_cfg['features_to_use']
-        
-        observation_columns_for_model = [f"{ticker}_{feat}" for ticker in config.ALL_TICKERS for feat in features_for_observation]
-        available_model_cols = [col for col in observation_columns_for_model if col in df.columns]
-        
-        # This is the crucial step: derive the tickers from the available data columns.
-        tickers_in_model = sorted(list(set([col.split('_')[0] for col in available_model_cols])))
-        
-        # Re-build the observation columns based on the tickers that are *actually* available.
-        final_observation_cols = [f"{ticker}_{feat}" for ticker in tickers_in_model for feat in features_for_observation]
+
+        # --- BUG FIX STARTS HERE ---
+        # The definitive list of tickers must be derived from the actual columns
+        # available in the data that are also part of the model's feature set.
+        initial_observation_cols = [f"{t}_{f}" for t in config.ALL_TICKERS for f in features_from_training]
+        final_observation_cols = [c for c in initial_observation_cols if c in df.columns]
+
+        # This is now the source of truth for the tickers the model will predict on.
+        # It perfectly matches the structure of the 'observation' tensor.
+        final_tickers_for_model = sorted(list(set([c.split('_')[0] for c in final_observation_cols])))
+        # --- BUG FIX ENDS HERE ---
+
+        # Get the most recent data for the observation
         observation = df[final_observation_cols].tail(window_size).values
-        # --- END FIX ---
 
     except Exception as e:
         logging.error(f"Data preparation error for model {model_name}: {e}", exc_info=True)
         return jsonify({'error': 'Could not prepare data for the model.'}), 500
 
+    # --- Get Model Prediction ---
     action, _ = model.predict(observation, deterministic=True)
-    predicted_weights = np.maximum(action, 0)
-    if np.sum(predicted_weights) > 0:
+
+    # Unpack and clean the action
+    if isinstance(action, tuple) and len(action) > 0:
+        predicted_weights = np.array(action[0]).flatten()
+    else:
+        predicted_weights = np.array(action).flatten()
+
+    # Normalize weights to ensure they sum to 1 (or less if holding cash)
+    if np.sum(predicted_weights) > 1:
         predicted_weights /= np.sum(predicted_weights)
 
+    cash_weight = 1.0 - np.sum(predicted_weights)
+
+    # --- Format Portfolio for Display ---
     portfolio = []
-    latest_prices = df[[f"{ticker}_close" for ticker in tickers_in_model if f"{ticker}_close" in df.columns]].iloc[-1]
-    
-    # --- FIX THE LOOP: Iterate over the dynamically determined tickers_in_model ---
-    for i, ticker in enumerate(tickers_in_model):
-        # Now the length of this loop matches the length of predicted_weights
+    existing_price_cols = [f"{t}_close" for t in final_tickers_for_model if f"{t}_close" in df.columns]
+    latest_prices = df[existing_price_cols].iloc[-1]
+
+    # Iterate over the definitive list of tickers that matches the prediction weights
+    for i, ticker in enumerate(final_tickers_for_model):
+        # This is now safe from the IndexError
         weight = predicted_weights[i]
         price_col = f"{ticker}_close"
-        if weight > 0.001 and price_col in latest_prices:
-            allocated_dollars = investment_amount * weight
-            price = latest_prices[price_col]
-            num_shares = int(allocated_dollars // price)
 
-            if num_shares > 0:
-                portfolio.append({
-                    'ticker': ticker,
-                    'shares': num_shares,
-                    'price': f"${price:,.2f}",
-                    'value': f"${num_shares * price:,.2f}",
-                    'weight': f"{weight:.1%}"
-                })
+        if weight > 0.001:
+            # This safety check prevents the KeyError
+            if price_col in latest_prices.index:
+                allocated_dollars = investment_amount * weight
+                price = latest_prices[price_col]
+                num_shares = int(allocated_dollars // price)
 
+                if num_shares > 0:
+                    portfolio.append({
+                        'ticker': ticker,
+                        'shares': num_shares,
+                        'price': f"${price:,.2f}",
+                        'value': f"${num_shares * price:,.2f}",
+                        'weight': f"{weight:.1%}"
+                    })
+            else:
+                logging.warning(f"Could not find price for ticker '{ticker}'. Skipping it in portfolio display.")
+
+    if cash_weight > 0.001:
+        portfolio.append({
+            'ticker': 'Cash', 'shares': '-', 'price': '$1.00',
+            'value': f"${investment_amount * cash_weight:,.2f}",
+            'weight': f"{cash_weight:.1%}"
+        })
+
+    # --- Generate LLM Rationale ---
     try:
         rationale = financial_advisor.generate_advice(
             user_profile={
@@ -180,4 +185,4 @@ def get_advice():
 
 if __name__ == '__main__':
     load_all_models()
-    app.run(debug=False, port=5000)
+    app.run(debug=True, port=5000)

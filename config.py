@@ -67,38 +67,45 @@ MODEL_CONFIGS = {
 
     # --- SHORT-TERM MODELS (Focus: Tactical, 1-6 week horizon) ---
 
-    "short_term_conservative": {
-        "description": "A cautious short-term model that prioritizes capital preservation and low turnover.",
-        "env_class": "PortfolioEnvShortTerm",
-        "features_to_use": ["daily_return", "volatility_10", "rsi", "bollinger_position", "close_vs_sma_20"],
-        "env_params": {
-            "volatility_target": 0.10,
-            "turnover_penalty_weight": 0.015,
-            "max_concentration_per_asset": 0.25,
-        },
-    },
+    # In config.py
 
-    "short_term_balanced": {
-        "description": "A balanced short-term model seeking a mix of safety and performance.",
-        "env_class": "PortfolioEnvShortTerm",
-        "features_to_use": ["daily_return", "volatility_20", "rsi", "macd_histogram", "momentum_10"],
-        "env_params": {
-            "volatility_target": 0.15,
-            "turnover_penalty_weight": 0.008,
-            "max_concentration_per_asset": 0.35,
-        },
-    },
+# --- SHORT-TERM MODELS (Focus: Tactical, 1-6 week horizon) ---
 
-    "short_term_aggressive": {
-        "description": "A more aggressive short-term model that seeks to capitalize on momentum.",
-        "env_class": "PortfolioEnvShortTerm",
-        "features_to_use": ["daily_return", "momentum_10", "momentum_20", "rsi", "macd_histogram", "volatility_20"],
-        "env_params": {
-            "volatility_target": 0.20,
-            "turnover_penalty_weight": 0.005,
-            "max_concentration_per_asset": 0.40,
+        "short_term_conservative": {
+            "description": "A cautious short-term model that prioritizes capital preservation and low turnover.",
+            "env_class": "PortfolioEnvShortTerm",
+            # FINAL BLUEPRINT: Using a highly stable, risk-aware feature set.
+            "features_to_use": ["bollinger_position", "volatility_20"],
+            "env_params": {
+                "volatility_target": 0.10,
+                "turnover_penalty_weight": 0.015,
+                "max_concentration_per_asset": 0.25,
+            },
         },
-    },
+
+        "short_term_balanced": {
+            "description": "A balanced short-term model seeking a mix of safety and performance.",
+            "env_class": "PortfolioEnvShortTerm",
+            # FINAL BLUEPRINT: Using the proven minimalist feature set.
+            "features_to_use": ["daily_return", "bollinger_position"],
+            "env_params": {
+                "volatility_target": 0.15,
+                "turnover_penalty_weight": 0.008,
+                "max_concentration_per_asset": 0.35,
+            },
+        },
+
+        "short_term_aggressive": {
+            "description": "A more aggressive short-term model that seeks to capitalize on momentum.",
+            "env_class": "PortfolioEnvShortTerm",
+            # FINAL BLUEPRINT: Using a simple but effective momentum-based feature set.
+            "features_to_use": ["daily_return", "rsi"],
+            "env_params": {
+                "volatility_target": 0.20,
+                "turnover_penalty_weight": 0.005,
+                "max_concentration_per_asset": 0.40,
+            },
+        },
 
     # --- LONG-TERM MODELS (Focus: Strategic, 3-12+ month horizon) ---
 
@@ -128,7 +135,20 @@ MODEL_CONFIGS = {
         "features_to_use": ["daily_return", "close_vs_sma_20", "close_vs_sma_50", "momentum_20", "volatility_20", "obv"],
         "env_params": {
             "rebalancing_frequency": 15, # Rebalance more often to catch trends
-            "turnover_penalty_weight": 0.01,
+            "turnover_penalty_weight": 0.015,
         },
     },
+    "long_term_minimalist": {
+    "description": "An extremely simple model to test for baseline robustness.",
+    "env_class": "PortfolioEnvLongTerm",
+    "features_to_use": [
+        "daily_return",
+        "volatility_20"
+    ],
+    "env_params": {
+        "rebalancing_frequency": 22,
+        "turnover_penalty_weight": 0.01,
+    },
+},
+
 }
