@@ -82,7 +82,6 @@ class PortfolioEnvShortTerm(gym.Env):
         else:
             target_weights = np.array(action).flatten()
             
-        # The short-term model rebalances every day, so we apply constraints here.
         target_weights = np.clip(target_weights, 0, self.max_concentration_per_asset)
 
         # Normalize weights and allow for holding cash

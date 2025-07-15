@@ -39,10 +39,10 @@ class PortfolioEnvLongTerm(gym.Env):
             dtype=np.float32,
         )
 
-        # Initialize internal state variables
+ 
         self.current_step = 0
         self.portfolio_value = self.initial_balance
-        self.weights = np.zeros(self.num_tickers) # Standardized to public
+        self.weights = np.zeros(self.num_tickers) 
         self.done = False
         self.portfolio_returns_history = deque(maxlen=20)
 

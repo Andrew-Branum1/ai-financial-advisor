@@ -1,23 +1,17 @@
-# rl/custom_ppo.py
-
 import numpy as np
 import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import VecEnv
 from stable_baselines3.common.callbacks import BaseCallback
-
 from stable_baselines3.common.utils import obs_as_tensor
-
 from stable_baselines3.common.buffers import RolloutBuffer
 from gymnasium import spaces
 
-
 class CustomPPO(PPO):
     """
-    A custom PPO class that is able to handle a compound action space,
-    where the action passed to the environment is a tuple.
+    A custom PPO class that correctly handles tuple-based action spaces,
+    which are often problematic for standard VecEnv implementations.
     """
-
     def collect_rollouts(
         self,
         env: VecEnv,
@@ -26,20 +20,11 @@ class CustomPPO(PPO):
         n_rollout_steps: int,
     ) -> bool:
         """
-        Collect experiences using the custom policy and store them into a ``RolloutBuffer``.
-
-        :param env: The training environment
-        :param callback: Callback that will be called at each step
-            (and at the beginning and end of the rollout)
-        :param rollout_buffer: Buffer to fill with rollouts
-        :param n_rollout_steps: Number of experiences to collect per environment
-        :return: True if function returned with at least `n_rollout_steps`
-            collected, False if callback terminated rollout prematurely.
+        Collects experience from the environment and stores it in a RolloutBuffer.
         """
         assert self._last_obs is not None, "No previous observation was provided"
-        # Switch to eval mode (this affects batch norm / dropout)
+        
         self.policy.set_training_mode(False)
-
         n_steps = 0
         rollout_buffer.reset()
         callback.on_rollout_start()
@@ -47,28 +32,17 @@ class CustomPPO(PPO):
         while n_steps < n_rollout_steps:
             with torch.no_grad():
                 obs_tensor = obs_as_tensor(self._last_obs, self.device)
-
-
-                # The policy's `predict` method returns our custom tuple.
-                actions_tuple, _states = self.policy.predict(
-                    obs_tensor, deterministic=False
-                )
-
-
-                # Get allocations, values, and log_probs for the buffer.
+                actions, _states = self.policy.predict(obs_tensor, deterministic=False)
                 allocations, values, log_probs = self.policy(obs_tensor)
 
-            # --- THE FIX IS HERE ---
-            # The VecEnv wrapper expects a NumPy array where the first dimension is the number of environments.
-            # It will misinterpret our action tuple. To prevent this, we wrap our tuple in a
-            # NumPy object array of shape (num_envs,).
+            # THE FIX: The standard VecEnv expects a NumPy array where the first 
+            # dimension is the number of environments. It will misinterpret our 
+            # action tuple. To fix this, we wrap the tuple in a NumPy object 
+            # array of shape (num_envs,), which protects it.
             actions_for_vec_env = np.empty(env.num_envs, dtype=object)
-            actions_for_vec_env[0] = actions_tuple
+            actions_for_vec_env[0] = actions
 
-
-            # Pass the protected action to the environment
             new_obs, rewards, dones, infos = env.step(actions_for_vec_env)
-
 
             self.num_timesteps += env.num_envs
             callback.update_locals(locals())
@@ -87,11 +61,7 @@ class CustomPPO(PPO):
                     and infos[idx].get("terminal_observation") is not None
                     and infos[idx].get("TimeLimit.truncated", False)
                 ):
-
-                    terminal_obs = self.policy.obs_to_tensor(
-                        infos[idx]["terminal_observation"]
-                    )[0]
-
+                    terminal_obs = self.policy.obs_to_tensor(infos[idx]["terminal_observation"])[0]
                     with torch.no_grad():
                         terminal_value = self.policy.predict_values(terminal_obs)[0]
                     rewards[idx] += self.gamma * terminal_value
@@ -113,6 +83,4 @@ class CustomPPO(PPO):
         rollout_buffer.compute_returns_and_advantage(last_values=values, dones=dones)
         callback.on_rollout_end()
 
-
         return True
-
