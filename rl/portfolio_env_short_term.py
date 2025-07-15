@@ -6,10 +6,6 @@ import pandas as pd
 from collections import deque
 
 class PortfolioEnvShortTerm(gym.Env):
-    """
-    A short-term portfolio management environment for reinforcement learning.
-    This version uses a rolling Sharpe ratio for rewards and allows holding cash.
-    """
     metadata = {"render_modes": ["human"]}
 
     def __init__(self, df, features_for_observation, window_size=30, initial_balance=100_000,
@@ -40,12 +36,11 @@ class PortfolioEnvShortTerm(gym.Env):
             dtype=np.float32,
         )
 
-        # Initialize state variables
         self.current_step = 0
         self.weights = np.zeros(self.num_tickers)
         self.portfolio_value = self.initial_balance
         self.done = False
-        self.portfolio_returns_history = deque(maxlen=20) # 20-day rolling window for Sharpe
+        self.portfolio_returns_history = deque(maxlen=20) 
 
     def _get_observation(self):
         end_idx = self.current_step + self.window_size
@@ -53,11 +48,9 @@ class PortfolioEnvShortTerm(gym.Env):
         return obs
 
     def _calculate_reward(self):
-        """Calculates reward based on a rolling Sharpe ratio."""
         history = list(self.portfolio_returns_history)
         if len(history) < 2:
             return 0.0
-
         history_np = np.array(history)
         sharpe_ratio = np.mean(history_np) / (np.std(history_np) + 1e-9)
         annualized_sharpe = sharpe_ratio * np.sqrt(252)
@@ -76,7 +69,7 @@ class PortfolioEnvShortTerm(gym.Env):
         return initial_observation, info
 
     def step(self, action):
-        # Unpack and flatten action to ensure it's a 1D array
+        # ensure it's a 1D array
         if isinstance(action, tuple) and len(action) > 0:
             target_weights = np.array(action[0]).flatten()
         else:
@@ -84,7 +77,7 @@ class PortfolioEnvShortTerm(gym.Env):
             
         target_weights = np.clip(target_weights, 0, self.max_concentration_per_asset)
 
-        # Normalize weights and allow for holding cash
+        #allow for holding cash
         cash_weight = 1.0 - np.sum(target_weights)
         if cash_weight < 0:
             target_weights = target_weights / np.sum(target_weights)

@@ -4,24 +4,19 @@ import sqlite3
 import pandas as pd
 import yfinance as yf
 import numpy as np
-
-# Make sure the script can find the 'config.py' file
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import ALL_TICKERS
 
-# --- Database Configuration ---
 DB_PATH = os.path.join("data", "market_data.db")
 RAW_TABLE = "raw_market_data"
 FEATURES_TABLE = "features_market_data"
 
 
 def fetch_raw_data(tickers, start="2000-01-01", end="2024-12-31"):
-    """Downloads raw price data from Yahoo Finance and stores it in the database."""
     print(f"Fetching raw data for {len(tickers)} tickers...")
     
     data = yf.download(" ".join(tickers), start=start, end=end, group_by='ticker')
     
-    # Consolidate multi-ticker results into a single DataFrame
     all_dfs = []
     for ticker in tickers:
         if isinstance(data.columns, pd.MultiIndex):
@@ -29,7 +24,7 @@ def fetch_raw_data(tickers, start="2000-01-01", end="2024-12-31"):
                 ticker_df = data[ticker].copy()
                 ticker_df['ticker'] = ticker
                 all_dfs.append(ticker_df)
-        elif not data.empty: # Handle single ticker download
+        elif not data.empty: 
             data['ticker'] = ticker
             all_dfs.append(data)
             break 
@@ -49,11 +44,10 @@ def fetch_raw_data(tickers, start="2000-01-01", end="2024-12-31"):
 
 
 def calculate_features():
-    """Loads raw data, calculates technical indicators, and stores them."""
     with sqlite3.connect(DB_PATH) as conn:
         raw_df = pd.read_sql(f"SELECT * FROM {RAW_TABLE}", conn, index_col='Date', parse_dates=True)
         
-    print("Calculating financial features...")
+    #print("Calculating financial features...")
     
     all_features_list = []
     for ticker in raw_df['ticker'].unique():
@@ -61,7 +55,7 @@ def calculate_features():
         if df.empty:
             continue
             
-        # --- Feature Calculations ---
+        # Features
         # RSI
         delta = df['close'].diff()
         gain = (delta.where(delta > 0, 0)).ewm(com=13, adjust=False).mean()
@@ -81,20 +75,16 @@ def calculate_features():
         bollinger_low = sma_20 - (std_20 * 2)
         df['bollinger_position'] = (df['close'] - bollinger_low) / ((bollinger_high - bollinger_low) + 1e-9)
 
-        # Other standard features
         df['obv'] = (np.sign(df['close'].diff()) * df['volume']).fillna(0).cumsum()
         df['daily_return'] = df['close'].pct_change()
         df['close_vs_sma_50'] = df['close'] / (df['close'].rolling(50).mean() + 1e-9)
         df['volatility_20'] = df['daily_return'].rolling(20).std()
-        
-        # --- START OF FIX: Add missing feature calculations ---
         df['close_vs_sma_20'] = df['close'] / (sma_20 + 1e-9)
         df['momentum_20'] = df['close'].pct_change(20)
-        # --- END OF FIX ---
 
         all_features_list.append(df)
 
-    # Pivot to wide format for the RL environment
+    # Pivot 
     features_df = pd.concat(all_features_list)
     pivot_df = features_df.pivot(columns='ticker')
     pivot_df.columns = [f"{col[1]}_{col[0]}" for col in pivot_df.columns]
@@ -106,9 +96,8 @@ def calculate_features():
         
 
 def load_market_data():
-    """Loads the final, feature-rich data from the database."""
     if not os.path.exists(DB_PATH):
-        raise FileNotFoundError(f"Database not found at {DB_PATH}. Please run this script first.")
+        print(f"Database not found at {DB_PATH}.")
     
     with sqlite3.connect(DB_PATH) as conn:
         df = pd.read_sql(f"SELECT * FROM {FEATURES_TABLE}", conn, index_col='Date', parse_dates=True)
@@ -116,17 +105,7 @@ def load_market_data():
 
 
 if __name__ == "__main__":
-    # This script will create and populate the database when run directly.
     os.makedirs("data", exist_ok=True)
-    
     tickers = sorted(list(set(ALL_TICKERS)))
-    
     fetch_raw_data(tickers)
     calculate_features()
-    
-    print("\n--- Data Management Complete ---")
-    
-    # Test loading the final data
-    final_data = load_market_data()
-    print("\nTest Load (first 5 rows):")
-    print(final_data.head())

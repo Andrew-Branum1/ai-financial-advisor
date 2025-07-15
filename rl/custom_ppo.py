@@ -8,10 +8,7 @@ from stable_baselines3.common.buffers import RolloutBuffer
 from gymnasium import spaces
 
 class CustomPPO(PPO):
-    """
-    A custom PPO class that correctly handles tuple-based action spaces,
-    which are often problematic for standard VecEnv implementations.
-    """
+
     def collect_rollouts(
         self,
         env: VecEnv,
@@ -19,9 +16,7 @@ class CustomPPO(PPO):
         rollout_buffer: RolloutBuffer,
         n_rollout_steps: int,
     ) -> bool:
-        """
-        Collects experience from the environment and stores it in a RolloutBuffer.
-        """
+
         assert self._last_obs is not None, "No previous observation was provided"
         
         self.policy.set_training_mode(False)
@@ -35,10 +30,6 @@ class CustomPPO(PPO):
                 actions, _states = self.policy.predict(obs_tensor, deterministic=False)
                 allocations, values, log_probs = self.policy(obs_tensor)
 
-            # THE FIX: The standard VecEnv expects a NumPy array where the first 
-            # dimension is the number of environments. It will misinterpret our 
-            # action tuple. To fix this, we wrap the tuple in a NumPy object 
-            # array of shape (num_envs,), which protects it.
             actions_for_vec_env = np.empty(env.num_envs, dtype=object)
             actions_for_vec_env[0] = actions
 

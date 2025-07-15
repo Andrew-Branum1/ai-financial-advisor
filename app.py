@@ -1,24 +1,19 @@
 import os
 import json
-import sqlite3
 from glob import glob
-
 import numpy as np
 import pandas as pd
 from flask import Flask, render_template, request, jsonify
 from stable_baselines3 import PPO
-
 import config
 from llm.advisor import financial_advisor
 from src.data_manager import load_market_data
 
 app = Flask(__name__)
 
-# A simple cache to hold loaded models in memory.
 MODEL_CACHE = {}
 
 def _find_latest_model_path(model_name_prefix: str) -> str | None:
-    """Finds the path to the most recent model file for a given name."""
     search_path = os.path.join('models', f'{model_name_prefix}_*')
     list_of_dirs = glob(search_path)
     if not list_of_dirs:
@@ -30,8 +25,7 @@ def _find_latest_model_path(model_name_prefix: str) -> str | None:
     return model_path if os.path.exists(model_path) else None
 
 def _load_all_models():
-    """Loads all models specified in the config into the cache."""
-    print("Loading all available models...")
+    #print("Loading all available models...")
     for model_name in config.MODEL_CONFIGS.keys():
         model_path = _find_latest_model_path(model_name)
         if model_path:
@@ -47,14 +41,12 @@ def _load_all_models():
 
 @app.route('/')
 def home():
-    """Renders the main web page with a list of available models."""
     available_models = sorted(list(MODEL_CACHE.keys()))
     return render_template('index.html', models=available_models)
 
 
 @app.route('/get_advice', methods=['POST'])
 def get_advice():
-    """Handles the API request for generating financial advice."""
     data = request.get_json()
     if not data:
         return jsonify({'error': 'Invalid request.'}), 400
@@ -71,7 +63,6 @@ def get_advice():
         return jsonify({'error': f'Model "{model_name}" is not available.'}), 404
 
     try:
-        # Prepare data exactly as the model expects
         model_folder = os.path.dirname(_find_latest_model_path(model_name))
         with open(os.path.join(model_folder, 'training_info.json'), 'r') as f:
             training_info = json.load(f)
@@ -84,30 +75,28 @@ def get_advice():
              raise ValueError("Failed to load market data from DB.")
         df.index = pd.to_datetime(df.index)
 
-        # Determine the exact feature columns the model was trained on
+        #find features
         initial_observation_cols = [f"{t}_{f}" for t in config.ALL_TICKERS for f in features_from_training]
         final_observation_cols = [c for c in initial_observation_cols if c in df.columns]
         
-        # This determines the tickers the model will predict on, matching the observation tensor
         final_tickers_for_model = sorted(list(set([c.split('_')[0] for c in final_observation_cols])))
         
-        # Get the most recent data for the observation
+        #use latest data
         observation = df[final_observation_cols].tail(window_size).values
 
     except Exception as e:
         print(f"Data preparation error for model {model_name}: {e}")
         return jsonify({'error': 'Could not prepare data for the model.'}), 500
 
-    # Get model's prediction
+    # Get prediction
     action, _ = model.predict(observation, deterministic=True)
     predicted_weights = np.array(action).flatten()
 
-    # Normalize weights to ensure they sum to 1
     if np.sum(predicted_weights) > 1:
         predicted_weights /= np.sum(predicted_weights)
     cash_weight = 1.0 - np.sum(predicted_weights)
 
-    # Format the portfolio for display
+    # Formatin
     portfolio = []
     latest_prices = df[[f"{t}_close" for t in final_tickers_for_model if f"{t}_close" in df.columns]].iloc[-1]
 

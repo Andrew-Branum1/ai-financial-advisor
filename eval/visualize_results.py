@@ -1,5 +1,3 @@
-# /eval/visualize_results.py
-import argparse
 import json
 import pandas as pd
 import numpy as np
@@ -7,24 +5,18 @@ import sys
 import os
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-
-# Add project root to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from stable_baselines3 import PPO
-from src.data_manager import load_market_data_from_db
+from src.data_manager import load_market_data
 from config import MODEL_CONFIGS, ALL_TICKERS, BENCHMARK_TICKER
 from rl.portfolio_env_long_term import PortfolioEnvLongTerm
 from rl.portfolio_env_short_term import PortfolioEnvShortTerm
 
 def run_backtest(env, model):
-    """Runs the backtest and returns the history of portfolio values and weights."""
     obs, _ = env.reset()
     done = False
     
-    # Store history of values and weights
     portfolio_values = [env.portfolio_value]
-    # CORRECTED: Use the public 'weights' attribute for consistency
     asset_weights = [env.weights] 
     dates = [env.df.index[env.current_step + env.window_size]]
 
@@ -35,7 +27,6 @@ def run_backtest(env, model):
 
         if not done:
             portfolio_values.append(env.portfolio_value)
-            # CORRECTED: Use the public 'weights' attribute
             asset_weights.append(env.weights)
             dates.append(env.df.index[env.current_step + env.window_size])
             
@@ -45,7 +36,6 @@ def run_backtest(env, model):
     }, index=pd.to_datetime(dates))
 
 def get_benchmark_performance(df, start_date, end_date, initial_investment=100000):
-    """Calculates the performance of a buy-and-hold strategy on the benchmark."""
     benchmark_col = f"{BENCHMARK_TICKER}_daily_return"
     benchmark_returns = df.loc[start_date:end_date, benchmark_col]
     
@@ -54,11 +44,10 @@ def get_benchmark_performance(df, start_date, end_date, initial_investment=10000
     return benchmark_values
 
 def plot_results(history, benchmark_history, config_name, tickers, output_dir='charts'):
-    """Generates and saves a set of plots analyzing the backtest results."""
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         
-    # --- 1. Equity Curve vs. Benchmark ---
+    # Model vs. Benchmark 
     plt.style.use('seaborn-v0_8-darkgrid')
     fig1, ax1 = plt.subplots(figsize=(15, 7))
     
@@ -73,14 +62,11 @@ def plot_results(history, benchmark_history, config_name, tickers, output_dir='c
     plt.xticks(rotation=45)
     plt.tight_layout()
     fig1.savefig(os.path.join(output_dir, f'{config_name}_equity_curve.png'), dpi=300)
-    print(f"✅ Equity curve plot saved to {output_dir}/{config_name}_equity_curve.png")
 
-    # --- 2. Asset Allocation Stacked Area Chart ---
+    # Portfolio Allocation
     fig2, ax2 = plt.subplots(figsize=(15, 7))
     weights_df = pd.DataFrame(history['weights'].tolist(), index=history.index, columns=tickers)
-    
-    # Calculate cash weight
-    weights_df['Cash'] = 1.0 - weights_df.sum(axis=1)
+    weights_df['Cash'] = 1.0 - weights_df.sum(axis=1) 
 
     ax2.stackplot(weights_df.index, weights_df.T, labels=weights_df.columns, alpha=0.8)
     
@@ -93,29 +79,26 @@ def plot_results(history, benchmark_history, config_name, tickers, output_dir='c
     plt.xticks(rotation=45)
     plt.tight_layout()
     fig2.savefig(os.path.join(output_dir, f'{config_name}_asset_allocation.png'), dpi=300)
-    print(f"✅ Asset allocation plot saved to {output_dir}/{config_name}_asset_allocation.png")
+    print(f"✅ Asset allocation plot saved for {config_name}")
     
     plt.close('all')
 
-def main(config_name, model_path):
-    """Main function to run the visualization script."""
+def generate_visuals_for_model(config_name, model_path):
     env_class_map = {"PortfolioEnvLongTerm": PortfolioEnvLongTerm, "PortfolioEnvShortTerm": PortfolioEnvShortTerm}
     
-    # --- Load Config and Data ---
-    df = load_market_data_from_db()
+    df = load_market_data()
     df.index = pd.to_datetime(df.index)
     config = MODEL_CONFIGS[config_name]
     env_class = env_class_map[config['env_class']]
     
-    model_dir = os.path.dirname(model_path)
-    info_path = os.path.join(model_dir, "training_info.json")
-    with open(info_path, 'r') as f: training_info = json.load(f)
+    with open(os.path.join(os.path.dirname(model_path), "training_info.json"), 'r') as f:
+        training_info = json.load(f)
     
     hyperparams = training_info['best_hyperparameters']
     features_from_training = training_info['features_used']
     env_hyperparams = {k: v for k, v in hyperparams.items() if k in ["window_size", "turnover_penalty_weight", "max_concentration_per_asset", "rebalancing_frequency"]}
     
-    # Replicate data filtering to get the correct set of tickers
+    # collect data
     train_start_date_check = training_info.get("train_start_date", "2015-01-01")
     train_end_date_check = training_info.get("train_end_date", "2021-12-31")
     min_data_points = 252 * 2
@@ -125,37 +108,38 @@ def main(config_name, model_path):
     
     required_features = ['close', 'daily_return']
     all_necessary_features = sorted(list(set(features_from_training + required_features)))
-    env_columns = [f"{t}_{f}" for t in tickers_in_model for f in all_necessary_features]
-    env_columns = [c for c in env_columns if c in df.columns]
+    env_columns = [f"{t}_{f}" for t in tickers_in_model for f in all_necessary_features if f"{t}_{f}" in df.columns]
     
-    # --- Set up Environment for backtesting on the test period ---
+    #test data
     test_start_date = "2022-01-01"
     test_df_env = df.loc[test_start_date:, env_columns].copy()
     
     env = env_class(test_df_env, features_for_observation=features_from_training, **env_hyperparams)
     
-    # --- Load Model ---
     model = PPO.load(model_path, env=env)
-
-    # --- Run Backtest and Generate Plots ---
-    print(f"Running backtest on test data for {config_name}...")
     history = run_backtest(env, model)
-    
-    print("Calculating benchmark performance...")
     benchmark_history = get_benchmark_performance(df, test_df_env.index.min(), test_df_env.index.max())
-    
-    print("Generating plots...")
     plot_results(history, benchmark_history, config_name, tickers_in_model)
-    print("\nAll visualizations have been saved to the 'charts/' directory.")
 
+def find_latest_model(config_name: str) -> str | None:
+    models_dir = "models"
+    if not os.path.isdir(models_dir):
+        return None
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Visualize the performance of a trained RL model.")
-    parser.add_argument('--config', type=str, required=True, help="Name of the configuration (e.g., 'long_term_balanced').")
-    parser.add_argument('--model', type=str, required=True, help="Path to the trained model file (.zip).")
-    args = parser.parse_args()
+    subfolders = [f for f in os.listdir(models_dir) if f.startswith(config_name) and os.path.isdir(os.path.join(models_dir, f))]
+    if not subfolders:
+        return None
+        
+    latest_folder = sorted(subfolders, reverse=True)[0]
+    model_path = os.path.join(models_dir, latest_folder, "model.zip")
     
-    if not os.path.exists(args.model):
-        print(f"Error: Model file not found at {args.model}")
-    else:
-        main(config_name=args.config, model_path=args.model)
+    return model_path if os.path.exists(model_path) else None
+
+def visualize_all_models():
+    for config_name in MODEL_CONFIGS.keys():
+        latest_model_path = find_latest_model(config_name)
+        generate_visuals_for_model(config_name, latest_model_path)
+
+            
+
+visualize_all_models()

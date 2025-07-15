@@ -1,22 +1,16 @@
 import os
 import textwrap
 import google.generativeai as genai
-
 class FinancialAdvisor:
-    """
-    Handles interaction with the Gemini API to generate financial advice.
-    """
     def __init__(self):
         gemini_api_key = os.getenv("GEMINI_API_KEY")
         if not gemini_api_key:
             raise ValueError("GEMINI_API_KEY environment variable not found.")
         
         genai.configure(api_key=gemini_api_key)
-        self.model = genai.GenerativeModel("gemini-2.0-flash") # Using a stable, specific model
+        self.model = genai.GenerativeModel("gemini-2.0-flash") 
 
     def _build_prompt(self, user_profile: dict, portfolio_allocation: dict) -> str:
-        """Builds a structured prompt for the language model."""
-        
         user_context = f"""
             **User Profile:**
             - Age: {user_profile.get('age', 'N/A')}
@@ -56,8 +50,6 @@ class FinancialAdvisor:
         return textwrap.dedent(prompt)
 
     def generate_advice(self, user_profile: dict, portfolio_allocation: dict) -> str:
-        """Generates a personalized investment report using the Gemini API."""
-        print(f"Generating financial rationale for a {user_profile.get('risk_tolerance')} profile...")
         try:
             prompt = self._build_prompt(user_profile, portfolio_allocation)
             response = self.model.generate_content(prompt)

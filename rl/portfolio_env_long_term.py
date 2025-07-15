@@ -6,9 +6,6 @@ import pandas as pd
 from collections import deque
 
 class PortfolioEnvLongTerm(gym.Env):
-    """
-    A long-term portfolio management environment for reinforcement learning.
-    """
     metadata = {"render_modes": ["human"]}
 
     def __init__(self, df, features_for_observation, window_size=60, rebalancing_frequency=20,
