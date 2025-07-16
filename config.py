@@ -1,9 +1,20 @@
 BENCHMARK_TICKER = "SPY"
 
-ALL_TICKERS = sorted(list(set([
-    "AAPL", "AMZN", "BAC", "CVX", "GOOGL", "JNJ", "JPM", "LLY", "MRK", "MSFT",
-    "NVDA", "PFE", "SAP", "SPY", "TM", "UNH", "V", "WMT", "XOM"
-])))
+TECH = ["AAPL", "AMZN", "GOOGL", "MSFT", "NVDA", "SAP", "V"]
+FINANCIAL = ["BAC", "JPM"]
+HEALTHCARE = ["JNJ", "LLY", "MRK", "PFE", "UNH"]
+ENERGY = ["CVX", "XOM"]
+OTHER = ["TM", "WMT"] 
+
+ALL_TICKERS = sorted(list(set(
+    TECH + 
+    FINANCIAL + 
+    HEALTHCARE + 
+    ENERGY + 
+    OTHER + 
+    [BENCHMARK_TICKER]
+)))
+
 
 ALL_FEATURES = [
     "close",

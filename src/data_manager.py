@@ -7,14 +7,12 @@ import numpy as np
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import ALL_TICKERS
 
-DB_PATH = os.path.join("data", "market_data.db")
-RAW_TABLE = "raw_market_data"
-FEATURES_TABLE = "features_market_data"
+DB = os.path.join("data", "market_data.db")
+RAW = "raw_market_data"
+FEAT = "features_market_data"
 
 
 def fetch_raw_data(tickers, start="2000-01-01", end="2024-12-31"):
-    print(f"Fetching raw data for {len(tickers)} tickers...")
-    
     data = yf.download(" ".join(tickers), start=start, end=end, group_by='ticker')
     
     all_dfs = []
@@ -28,28 +26,26 @@ def fetch_raw_data(tickers, start="2000-01-01", end="2024-12-31"):
             data['ticker'] = ticker
             all_dfs.append(data)
             break 
-            
-    if not all_dfs:
-        print("Could not fetch any raw data. Exiting.")
-        return
 
     # Clean up and store the raw data
     combined = pd.concat(all_dfs)
-    combined.rename(columns={"Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume", "Adj Close": "adj_close"}, inplace=True)
+    combined.rename(columns={
+        "Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume", "Adj Close": "adj_close"
+        }, inplace=True)
     combined.dropna(subset=['close'], inplace=True)
     
-    with sqlite3.connect(DB_PATH) as conn:
-        combined.to_sql(RAW_TABLE, conn, if_exists='replace', index=True)
-        print(f"Stored raw data in table '{RAW_TABLE}'.")
+    with sqlite3.connect(DB) as conn:
+        combined.to_sql(RAW, conn, if_exists='replace', index=True)
+        #print("Stored raw data")
 
 
 def calculate_features():
-    with sqlite3.connect(DB_PATH) as conn:
-        raw_df = pd.read_sql(f"SELECT * FROM {RAW_TABLE}", conn, index_col='Date', parse_dates=True)
+    with sqlite3.connect(DB) as conn:
+        raw_df = pd.read_sql(f"SELECT * FROM {RAW}", conn, index_col='Date', parse_dates=True)
         
     #print("Calculating financial features...")
     
-    all_features_list = []
+    features = []
     for ticker in raw_df['ticker'].unique():
         df = raw_df[raw_df['ticker'] == ticker].copy().sort_index()
         if df.empty:
@@ -60,12 +56,13 @@ def calculate_features():
         delta = df['close'].diff()
         gain = (delta.where(delta > 0, 0)).ewm(com=13, adjust=False).mean()
         loss = (-delta.where(delta < 0, 0)).ewm(com=13, adjust=False).mean()
-        df['rsi'] = 100 - (100 / (1 + (gain / (loss + 1e-9))))
+        rs = gain / (loss + 1e-9)
+        df['rsi'] = 100 - (100 / (1 + rs))
 
         # MACD
-        ema_12 = df['close'].ewm(span=12, adjust=False).mean()
-        ema_26 = df['close'].ewm(span=26, adjust=False).mean()
-        df['macd'] = ema_12 - ema_26
+        ema_fast = df['close'].ewm(span=12, adjust=False).mean()
+        ema_slow = df['close'].ewm(span=26, adjust=False).mean()
+        df['macd'] = ema_fast - ema_slow
         df['macd_signal'] = df['macd'].ewm(span=9, adjust=False).mean()
 
         # Bollinger Bands
@@ -73,7 +70,8 @@ def calculate_features():
         std_20 = df['close'].rolling(window=20).std()
         bollinger_high = sma_20 + (std_20 * 2)
         bollinger_low = sma_20 - (std_20 * 2)
-        df['bollinger_position'] = (df['close'] - bollinger_low) / ((bollinger_high - bollinger_low) + 1e-9)
+        bollinger_width = bollinger_high - bollinger_low
+        df['bollinger_position'] = (df['close'] - bollinger_low) / (bollinger_width + 1e-9)
 
         df['obv'] = (np.sign(df['close'].diff()) * df['volume']).fillna(0).cumsum()
         df['daily_return'] = df['close'].pct_change()
@@ -82,25 +80,22 @@ def calculate_features():
         df['close_vs_sma_20'] = df['close'] / (sma_20 + 1e-9)
         df['momentum_20'] = df['close'].pct_change(20)
 
-        all_features_list.append(df)
+        features.append(df)
 
     # Pivot 
-    features_df = pd.concat(all_features_list)
+    features_df = pd.concat(features)
     pivot_df = features_df.pivot(columns='ticker')
     pivot_df.columns = [f"{col[1]}_{col[0]}" for col in pivot_df.columns]
     pivot_df.ffill(inplace=True)
 
-    with sqlite3.connect(DB_PATH) as conn:
-        pivot_df.to_sql(FEATURES_TABLE, conn, if_exists='replace', index=True)
-        print(f"Stored all features in table '{FEATURES_TABLE}'.")
+    with sqlite3.connect(DB) as conn:
+        pivot_df.to_sql(FEAT, conn, if_exists='replace', index=True)
+        #print("Stored all features")
         
 
 def load_market_data():
-    if not os.path.exists(DB_PATH):
-        print(f"Database not found at {DB_PATH}.")
-    
-    with sqlite3.connect(DB_PATH) as conn:
-        df = pd.read_sql(f"SELECT * FROM {FEATURES_TABLE}", conn, index_col='Date', parse_dates=True)
+    with sqlite3.connect(DB) as conn:
+        df = pd.read_sql(f"SELECT * FROM {FEAT}", conn, index_col='Date', parse_dates=True)
     return df
 
 
