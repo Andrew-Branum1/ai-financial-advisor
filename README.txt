@@ -28,9 +28,3 @@ Setup
 
 6. Run Web App
    python app.py
-
-
-Acknowledgements
-----------------
-
-This project was developed with assistance from Google's AI.
